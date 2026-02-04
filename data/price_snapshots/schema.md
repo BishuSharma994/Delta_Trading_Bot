@@ -1,0 +1,7 @@
+timestamp_utc (ISO8601)
+symbol (string)
+product_id (int)
+mark_price (float)
+bid_price (float)
+ask_price (float)
+volume_1m (float)

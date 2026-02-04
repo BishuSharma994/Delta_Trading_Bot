@@ -1,3 +1,20 @@
+# secrets
+.env
+
+# python
+__pycache__/
+
+# logs
+logs/
+*.log
+bot.log
+
+# runtime data (ignore everything)
+data/*
+
+# allow schema documentation
+!data/**/
+!data/**/schema.md
 .env
 __pycache__/
 bot.log

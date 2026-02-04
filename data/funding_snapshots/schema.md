@@ -1,0 +1,7 @@
+timestamp_utc (ISO8601)
+symbol (string)
+product_id (int)
+funding_rate (float, percent)
+next_funding_time_utc (ISO8601)
+mark_price (float)
+index_price (float)
