@@ -32,41 +32,6 @@ def pre_volatility_15m(prices_15m):
     returns = _log_returns(prices_15m)
     return stdev(returns)
 
-def pre_trend_slope_15m(prices_15m):
-    """
-    Linear slope of price over 15 minutes.
-    Positive = uptrend, Negative = downtrend
-    """
-    n = len(prices_15m)
-    if n < 2:
-        raise ValueError("At least two prices required")
-
-    x = list(range(n))
-    y = prices_15m
-
-    x_mean = sum(x) / n
-    y_mean = sum(y) / n
-
-    numerator = sum((x[i] - x_mean) * (y[i] - y_mean) for i in range(n))
-    denominator = sum((x[i] - x_mean) ** 2 for i in range(n))
-
-    if denominator == 0:
-        raise ValueError("Degenerate trend window")
-
-    return numerator / denominator
-
-def bid_ask_spread_pct(bid_price, ask_price):
-    """
-    Percentage bid-ask spread relative to mid price
-    """
-    if bid_price <= 0 or ask_price <= 0:
-        raise ValueError("Prices must be positive")
-
-    if ask_price < bid_price:
-        raise ValueError("Ask price cannot be lower than bid price")
-
-    mid = (bid_price + ask_price) / 2
-    return (ask_price - bid_price) / mid
 
 def pre_trend_slope_15m(prices_15m):
     """
@@ -91,6 +56,7 @@ def pre_trend_slope_15m(prices_15m):
 
     return numerator / denominator
 
+
 def bid_ask_spread_pct(bid_price, ask_price):
     """
     Percentage bid-ask spread relative to mid price
@@ -103,3 +69,4 @@ def bid_ask_spread_pct(bid_price, ask_price):
 
     mid = (bid_price + ask_price) / 2
     return (ask_price - bid_price) / mid
+
