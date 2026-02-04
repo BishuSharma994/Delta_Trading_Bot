@@ -70,3 +70,20 @@ def bid_ask_spread_pct(bid_price, ask_price):
     mid = (bid_price + ask_price) / 2
     return (ask_price - bid_price) / mid
 
+from datetime import datetime, timezone
+
+def time_to_funding_sec(next_funding_time_utc: str, now_utc: str) -> int:
+    """
+    Seconds remaining until next funding event.
+    Both inputs must be ISO8601 UTC strings.
+    """
+
+    t_next = datetime.fromisoformat(next_funding_time_utc.replace("Z", "+00:00"))
+    t_now = datetime.fromisoformat(now_utc.replace("Z", "+00:00"))
+
+    delta = (t_next - t_now).total_seconds()
+
+    if delta < 0:
+        raise ValueError("Funding time already passed")
+
+    return int(delta)
