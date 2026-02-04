@@ -8,10 +8,8 @@ from datetime import datetime, timezone
 from core.feature_pipeline import build_feature_vector
 from intelligence.evaluator import evaluate
 from data.events import log_event
+from config.settings import SYMBOLS, DECISION_LOOP_SLEEP_SECONDS
 
-
-SYMBOLS = ["BTCUSD"]
-SLEEP_SECONDS = 60
 
 
 def run_once(symbol: str):
@@ -46,7 +44,8 @@ def run_loop():
         for symbol in SYMBOLS:
             run_once(symbol)
 
-        time.sleep(SLEEP_SECONDS)
+        time.sleep(DECISION_LOOP_SLEEP_SECONDS)
+
 
 
 if __name__ == "__main__":
