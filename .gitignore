@@ -1,3 +1,8 @@
+# Runtime market memory
+data/events/*.jsonl
+
+# Backtest temporary files
+data/events/_*.jsonl
 # secrets
 .env
 
