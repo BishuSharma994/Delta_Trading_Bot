@@ -79,4 +79,17 @@ def build_feature_vector(symbol: str):
             mid = (bid + ask) / 2
             features["bid_ask_spread_pct"] = (ask - bid) / mid
 
+# -------------------------
+# Feature Readiness States
+# -------------------------
+feature_states = {}
+
+for name in ["funding_rate_abs", "time_to_funding_sec", "pre_volatility_5m"]:
+    if name in features:
+        feature_states[name] = "hot"
+    else:
+        feature_states[name] = "cold"
+
+features["_feature_states"] = feature_states
+
     return features

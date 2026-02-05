@@ -177,10 +177,12 @@ def main():
             decision = evaluate(features)
 
             write_event("decision.jsonl", {
-                "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "decision": decision
-            })
+    "timestamp_utc": now_utc,
+    "symbol": SYMBOL,
+    "decision": decision,
+    "feature_states": features.get("_feature_states", {})
+})
+
 
             print("DECISION:", decision)
             logging.info("DECISION | %s", decision)
