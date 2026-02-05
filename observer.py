@@ -1,5 +1,5 @@
 # =========================
-# OBSERVER — INSTITUTIONAL V1
+# OBSERVER — INSTITUTIONAL V1.2
 # Trading + Intelligence Bridge
 # =========================
 
@@ -36,13 +36,10 @@ SYMBOL = "BTCUSD"
 PRODUCT_ID = 84
 
 ORDER_SIZE = 1
-FUNDING_THRESHOLD = 0.0002
 LOOP_INTERVAL_SECONDS = 60
-MAX_HOLD_SECONDS = 60 * 30
 HTTP_TIMEOUT = 5
 
-position_entry_time = None
-KILL_SWITCH = False  # SET TRUE TO HARD-STOP ALL TRADING
+KILL_SWITCH = False  # HARD STOP FOR ALL EXECUTION
 
 print("KILL_SWITCH VALUE AT START:", KILL_SWITCH)
 
@@ -83,30 +80,11 @@ def signed_get(path):
     return r.json()["result"]
 
 
-def signed_post(path, body_dict):
-    body = json.dumps(body_dict)
-    headers = _sign("POST", path, body)
-    r = requests.post(
-        BASE_URL + path,
-        headers=headers,
-        data=body,
-        timeout=HTTP_TIMEOUT
-    )
-    if not r.ok:
-        print("STATUS:", r.status_code)
-        print("RESPONSE:", r.text)
-    r.raise_for_status()
-    return r.json()["result"]
-
 # =========================
-# API FUNCTIONS
+# API READS ONLY
 # =========================
 def get_wallet():
     return signed_get("/v2/wallet/balances")
-
-
-def get_positions():
-    return signed_get("/v2/positions/margined")
 
 
 def get_mark_price():
@@ -131,50 +109,11 @@ def get_funding_rate():
         return None
 
 
-def place_market_order(side):
-    print("KILL SWITCH CHECK:", KILL_SWITCH)
-    if KILL_SWITCH:
-        raise RuntimeError("KILL SWITCH ACTIVE — ORDER BLOCKED")
-
-    body = {
-        "product_id": PRODUCT_ID,
-        "size": ORDER_SIZE,
-        "side": side,
-        "order_type": "market_order",
-    }
-
-    print("ORDER PAYLOAD:", body)
-    order = signed_post("/v2/orders", body)
-    logging.info("ORDER PLACED | %s", order)
-    return order
-
-
-def close_position():
-    if KILL_SWITCH:
-        logging.warning("KILL SWITCH ACTIVE — CLOSE BLOCKED")
-        return
-
-    positions = get_positions()
-    for p in positions:
-        if p["product_symbol"] == SYMBOL and int(p["size"]) != 0:
-            side = "sell" if p["side"] == "buy" else "buy"
-            body = {
-                "product_id": PRODUCT_ID,
-                "size": abs(int(p["size"])),
-                "side": side,
-                "order_type": "market_order",
-                "reduce_only": True,
-            }
-            signed_post("/v2/orders", body)
-            logging.info("POSITION CLOSED")
-            return
-
 # =========================
 # MAIN LOOP
 # =========================
 def main():
-    global position_entry_time
-    logging.info("BOT STARTED")
+    logging.info("OBSERVER STARTED (V1.2 — INTELLIGENCE ONLY)")
 
     while True:
         try:
@@ -186,8 +125,8 @@ def main():
             wallet = get_wallet()
             balance = 0.0
             for a in wallet:
-                if a["asset_symbol"] in ("INR", "USD"):
-                    balance = float(a["available_balance"])
+                if a.get("asset_symbol") in ("INR", "USD"):
+                    balance = float(a.get("available_balance", 0))
                     break
 
             # -------- MARKET DATA --------
@@ -202,76 +141,60 @@ def main():
             # -------- EVENT INGESTION --------
             write_event("price_snapshot.jsonl", {
                 "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "product_id": PRODUCT_ID,
-                "mark_price": price,
-                "index_price": price,
-                "best_bid": price * 0.999,
-                "best_ask": price * 1.001,
+                "event_type": "price_snapshot",
+                "payload": {
+                    "timestamp_utc": now_utc,
+                    "symbol": SYMBOL,
+                    "product_id": PRODUCT_ID,
+                    "mark_price": price,
+                    "index_price": price,
+                    "best_bid": price * 0.999,
+                    "best_ask": price * 1.001,
+                }
             })
 
             if funding is not None:
                 write_event("funding_snapshot.jsonl", {
                     "timestamp_utc": now_utc,
-                    "symbol": SYMBOL,
-                    "product_id": PRODUCT_ID,
-                    "funding_rate": funding,
-                    "next_funding_time_utc": (
-                        datetime.now(timezone.utc)
-                        .replace(minute=0, second=0, microsecond=0)
-                        .isoformat()
-                    )
+                    "event_type": "funding_snapshot",
+                    "payload": {
+                        "timestamp_utc": now_utc,
+                        "symbol": SYMBOL,
+                        "product_id": PRODUCT_ID,
+                        "funding_rate_pct": funding,
+                        "next_funding_time_utc": (
+                            datetime.now(timezone.utc)
+                            .replace(minute=0, second=0, microsecond=0)
+                            .isoformat()
+                        ),
+                        "mark_price": price,
+                        "index_price": price,
+                    }
                 })
 
             # -------- INTELLIGENCE --------
             features = build_feature_vector(SYMBOL)
             decision = evaluate(features)
 
+            write_event("decision.jsonl", {
+                "timestamp_utc": now_utc,
+                "symbol": SYMBOL,
+                "decision": decision
+            })
+
             print("DECISION:", decision)
             logging.info("DECISION | %s", decision)
 
-            # -------- POSITION STATE --------
-            positions = get_positions()
-            open_positions = [
-                p for p in positions
-                if p["product_symbol"] == SYMBOL and int(p["size"]) != 0
-            ]
-
-            print("Open Positions:", len(open_positions))
-
-            # -------- TRADING LOGIC (UNCHANGED) --------
-            if not open_positions:
-                position_entry_time = None
-
-                if funding is None:
-                    print("NO FUNDING DATA → STANDING BY")
-
-                elif funding >= FUNDING_THRESHOLD:
-                    print("FUNDING HIGH → ENTER SHORT")
-                    place_market_order("sell")
-                    position_entry_time = time.time()
-
-                elif funding <= -FUNDING_THRESHOLD:
-                    print("FUNDING LOW → ENTER LONG")
-                    place_market_order("buy")
-                    position_entry_time = time.time()
-
-                else:
-                    print("FUNDING NEUTRAL → NO TRADE")
-
+            # -------- EXECUTION GATE (V1.2) --------
+            if decision.get("state") == "EDGE_APPROVED":
+                logging.warning(
+                    "EDGE APPROVED — EXECUTION STILL DISABLED (V1.2)"
+                )
             else:
-                if position_entry_time is None:
-                    position_entry_time = time.time()
-
-                held = time.time() - position_entry_time
-                print(f"POSITION HELD FOR {int(held)} seconds")
-
-                if held >= MAX_HOLD_SECONDS:
-                    print("MAX HOLD TIME → CLOSE POSITION")
-                    close_position()
-                    position_entry_time = None
-                else:
-                    print("HOLDING POSITION")
+                logging.info(
+                    "NO EXECUTION — STATE: %s",
+                    decision.get("state")
+                )
 
             print("SLEEPING:", LOOP_INTERVAL_SECONDS, "seconds")
             time.sleep(LOOP_INTERVAL_SECONDS)
