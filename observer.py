@@ -175,6 +175,19 @@ def main():
             # -------- INTELLIGENCE --------
             features = build_feature_vector(SYMBOL)
             decision = evaluate(features)
+            # -------- STRATEGY VOTES (V2.1 — LOG ONLY) --------
+from strategies.funding_bias import FundingBiasStrategy
+
+funding_strategy = FundingBiasStrategy()
+funding_vote = funding_strategy.vote(features)
+
+write_event("strategy_votes.jsonl", {
+    "timestamp_utc": now_utc,
+    "symbol": SYMBOL,
+    "strategy": funding_strategy.name,
+    "vote": funding_vote,
+})
+
 
             write_event("decision.jsonl", {
     "timestamp_utc": now_utc,
