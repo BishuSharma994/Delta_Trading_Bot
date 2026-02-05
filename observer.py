@@ -1,3 +1,12 @@
+# =========================
+# OBSERVER — INSTITUTIONAL V1
+# Trading + Intelligence Bridge
+# =========================
+
+from core.feature_pipeline import build_feature_vector
+from core.evaluator import evaluate
+from utils.io import write_event
+
 import os
 import time
 import hmac
@@ -31,10 +40,11 @@ FUNDING_THRESHOLD = 0.0002
 LOOP_INTERVAL_SECONDS = 60
 MAX_HOLD_SECONDS = 60 * 30
 HTTP_TIMEOUT = 5
-position_entry_time = None
-KILL_SWITCH = False  # SET TO True TO HALT ALL TRADING
-print("KILL_SWITCH VALUE AT START:", KILL_SWITCH)
 
+position_entry_time = None
+KILL_SWITCH = False  # SET TRUE TO HARD-STOP ALL TRADING
+
+print("KILL_SWITCH VALUE AT START:", KILL_SWITCH)
 
 # =========================
 # LOGGING
@@ -57,14 +67,13 @@ def _sign(method, path, body=""):
         hashlib.sha256
     ).hexdigest()
 
-    headers = {
+    return {
         "api-key": API_KEY,
         "timestamp": ts,
         "signature": sig,
         "User-Agent": "python-bot",
         "Content-Type": "application/json",
     }
-    return headers
 
 
 def signed_get(path):
@@ -100,7 +109,6 @@ def get_positions():
     return signed_get("/v2/positions/margined")
 
 
-
 def get_mark_price():
     r = requests.get(
         BASE_URL + f"/v2/tickers/{SYMBOL}",
@@ -118,30 +126,23 @@ def get_funding_rate():
         )
         r.raise_for_status()
         product = r.json()["result"]
-
-        funding = product.get("funding_rate")
-        if funding is None:
-            return None
-
-        return float(funding)
-
+        return product.get("funding_rate")
     except Exception:
         return None
-
 
 
 def place_market_order(side):
     print("KILL SWITCH CHECK:", KILL_SWITCH)
     if KILL_SWITCH:
-        print("KILL SWITCH ACTIVE → ORDER BLOCKED")
-        logging.critical("KILL SWITCH ACTIVE → ORDER BLOCKED")
-        raise RuntimeError("KILL SWITCH PREVENTED ORDER")
+        raise RuntimeError("KILL SWITCH ACTIVE — ORDER BLOCKED")
+
     body = {
         "product_id": PRODUCT_ID,
         "size": ORDER_SIZE,
         "side": side,
         "order_type": "market_order",
     }
+
     print("ORDER PAYLOAD:", body)
     order = signed_post("/v2/orders", body)
     logging.info("ORDER PLACED | %s", order)
@@ -150,9 +151,9 @@ def place_market_order(side):
 
 def close_position():
     if KILL_SWITCH:
-        print("KILL SWITCH ACTIVE → CLOSE BLOCKED")
-        logging.warning("KILL SWITCH ACTIVE → CLOSE BLOCKED")
+        logging.warning("KILL SWITCH ACTIVE — CLOSE BLOCKED")
         return
+
     positions = get_positions()
     for p in positions:
         if p["product_symbol"] == SYMBOL and int(p["size"]) != 0:
@@ -164,26 +165,24 @@ def close_position():
                 "order_type": "market_order",
                 "reduce_only": True,
             }
-            result = signed_post("/v2/orders", body)
-            logging.info("POSITION CLOSED | %s", result)
-            print("POSITION CLOSED")
+            signed_post("/v2/orders", body)
+            logging.info("POSITION CLOSED")
             return
 
 # =========================
 # MAIN LOOP
 # =========================
 def main():
-    if KILL_SWITCH:
-     logging.warning("KILL SWITCH ENABLED — BOT IN READ-ONLY MODE")
-
     global position_entry_time
     logging.info("BOT STARTED")
 
     while True:
         try:
             print("-" * 60)
-            print("UTC:", datetime.now(timezone.utc).isoformat())
+            now_utc = datetime.now(timezone.utc).isoformat()
+            print("UTC:", now_utc)
 
+            # -------- WALLET --------
             wallet = get_wallet()
             balance = 0.0
             for a in wallet:
@@ -191,6 +190,7 @@ def main():
                     balance = float(a["available_balance"])
                     break
 
+            # -------- MARKET DATA --------
             price = get_mark_price()
             funding = get_funding_rate()
 
@@ -199,11 +199,38 @@ def main():
             print("Mark Price:", price)
             print("Funding Rate:", funding)
 
-            logging.info(
-                "Heartbeat | Margin=%s | Price=%s | Funding=%s",
-                balance, price, funding
-            )
+            # -------- EVENT INGESTION --------
+            write_event("price_snapshot.jsonl", {
+                "timestamp_utc": now_utc,
+                "symbol": SYMBOL,
+                "product_id": PRODUCT_ID,
+                "mark_price": price,
+                "index_price": price,
+                "best_bid": price * 0.999,
+                "best_ask": price * 1.001,
+            })
 
+            if funding is not None:
+                write_event("funding_snapshot.jsonl", {
+                    "timestamp_utc": now_utc,
+                    "symbol": SYMBOL,
+                    "product_id": PRODUCT_ID,
+                    "funding_rate": funding,
+                    "next_funding_time_utc": (
+                        datetime.now(timezone.utc)
+                        .replace(minute=0, second=0, microsecond=0)
+                        .isoformat()
+                    )
+                })
+
+            # -------- INTELLIGENCE --------
+            features = build_feature_vector(SYMBOL)
+            decision = evaluate(features)
+
+            print("DECISION:", decision)
+            logging.info("DECISION | %s", decision)
+
+            # -------- POSITION STATE --------
             positions = get_positions()
             open_positions = [
                 p for p in positions
@@ -212,6 +239,7 @@ def main():
 
             print("Open Positions:", len(open_positions))
 
+            # -------- TRADING LOGIC (UNCHANGED) --------
             if not open_positions:
                 position_entry_time = None
 
@@ -239,7 +267,7 @@ def main():
                 print(f"POSITION HELD FOR {int(held)} seconds")
 
                 if held >= MAX_HOLD_SECONDS:
-                    print("MAX HOLD TIME REACHED → CLOSING POSITION")
+                    print("MAX HOLD TIME → CLOSE POSITION")
                     close_position()
                     position_entry_time = None
                 else:
@@ -256,6 +284,7 @@ def main():
             print("ERROR:", str(e))
             logging.exception("Unhandled exception")
             time.sleep(LOOP_INTERVAL_SECONDS)
+
 
 # =========================
 if __name__ == "__main__":
