@@ -11,7 +11,6 @@ from data.memory import (
     get_latest_book
 )
 
-
 # -------------------------
 # Helpers
 # -------------------------
@@ -28,10 +27,6 @@ def _log_returns(prices):
 # Feature Builder
 # -------------------------
 def build_feature_vector(symbol: str):
-    """
-    Build a pure feature vector from historical memory.
-    Missing features are omitted by design.
-    """
     features = {}
 
     # =====================================================
@@ -39,22 +34,24 @@ def build_feature_vector(symbol: str):
     # =====================================================
     funding = get_latest_funding(symbol)
 
-    if funding and "funding_rate" in funding and "next_funding_time_utc" in funding:
+    if funding:
         # Absolute funding rate
-        if isinstance(funding["funding_rate"], (int, float)):
-            features["funding_rate_abs"] = abs(funding["funding_rate"])
+        fr = funding.get("funding_rate")
+        if isinstance(fr, (int, float)):
+            features["funding_rate_abs"] = abs(fr)
 
-        # Time to next funding (seconds)
-        try:
-            next_time = funding["next_funding_time_utc"].replace("Z", "+00:00")
-            next_funding_time = datetime.fromisoformat(next_time)
-            now_utc = datetime.now(timezone.utc)
-            delta_sec = (next_funding_time - now_utc).total_seconds()
-
-            if delta_sec >= 0:
-                features["time_to_funding_sec"] = delta_sec
-        except Exception:
-            pass  # malformed timestamp → feature remains missing
+        # Time to next funding
+        nft = funding.get("next_funding_time_utc")
+        if nft:
+            try:
+                nft = nft.replace("Z", "+00:00")
+                next_time = datetime.fromisoformat(nft)
+                now = datetime.now(timezone.utc)
+                delta_sec = (next_time - now).total_seconds()
+                if delta_sec >= 0:
+                    features["time_to_funding_sec"] = delta_sec
+            except Exception:
+                pass
 
     # =====================================================
     # PRICE VOLATILITY (5 MIN)
@@ -71,25 +68,27 @@ def build_feature_vector(symbol: str):
     # =====================================================
     book = get_latest_book(symbol)
 
-    if book and "best_bid" in book and "best_ask" in book:
-        bid = book["best_bid"]
-        ask = book["best_ask"]
+    if book:
+        bid = book.get("best_bid")
+        ask = book.get("best_ask")
 
-        if bid > 0 and ask > bid:
-            mid = (bid + ask) / 2
-            features["bid_ask_spread_pct"] = (ask - bid) / mid
+        if isinstance(bid, (int, float)) and isinstance(ask, (int, float)):
+            if bid > 0 and ask > bid:
+                mid = (bid + ask) / 2
+                features["bid_ask_spread_pct"] = (ask - bid) / mid
 
-# -------------------------
-# Feature Readiness States
-# -------------------------
-feature_states = {}
+    # =====================================================
+    # FEATURE READINESS STATES (STEP 2)
+    # =====================================================
+    feature_states = {}
 
-for name in ["funding_rate_abs", "time_to_funding_sec", "pre_volatility_5m"]:
-    if name in features:
-        feature_states[name] = "hot"
-    else:
-        feature_states[name] = "cold"
+    for name in [
+        "funding_rate_abs",
+        "time_to_funding_sec",
+        "pre_volatility_5m",
+    ]:
+        feature_states[name] = "hot" if name in features else "cold"
 
-features["_feature_states"] = feature_states
+    features["_feature_states"] = feature_states
 
     return features
