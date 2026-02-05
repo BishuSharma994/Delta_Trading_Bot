@@ -11,23 +11,29 @@ import json
 import requests
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from dotenv import load_dotenv
 
+# -------------------------
+# HARD PIN WORKING DIRECTORY
+# -------------------------
+BASE_DIR = Path(__file__).resolve().parent
+os.chdir(BASE_DIR)
+print("OBSERVER CWD:", os.getcwd())
+
+# -------------------------
+# LOAD ENV (ABSOLUTE PATH)
+# -------------------------
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+print("OBSERVER BOOTSTRAP COMPLETE")
+
+# -------------------------
+# IMPORT INTERNAL MODULES
+# -------------------------
 from core.feature_pipeline import build_feature_vector
 from core.evaluator import evaluate
 from utils.io import write_event
 from strategies.funding_bias import FundingBiasStrategy
-
-# =========================
-# LOAD ENV
-# =========================
-load_dotenv()
-
-API_KEY = os.getenv("DELTA_API_KEY")
-API_SECRET = os.getenv("DELTA_API_SECRET")
-
-if not API_KEY or not API_SECRET:
-    raise RuntimeError("API keys not loaded")
 
 # =========================
 # CONFIG
@@ -38,8 +44,13 @@ PRODUCT_ID = 84
 
 LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
-
 KILL_SWITCH = False
+
+API_KEY = os.getenv("DELTA_API_KEY")
+API_SECRET = os.getenv("DELTA_API_SECRET")
+
+if not API_KEY or not API_SECRET:
+    raise RuntimeError("API keys not loaded")
 
 # =========================
 # LOGGING
@@ -153,6 +164,7 @@ def main():
 
             print("DECISION:", decision)
             logging.info("DECISION | %s", decision)
+            logging.info("NO EXECUTION — STATE: %s", decision.get("state"))
 
             write_event("decision.jsonl", {
                 "timestamp_utc": now_utc,
@@ -177,3 +189,13 @@ def main():
         except KeyboardInterrupt:
             logging.info("MANUAL STOP")
             break
+
+        except Exception as e:
+            print("ERROR:", str(e))
+            logging.exception("Unhandled exception")
+            time.sleep(LOOP_INTERVAL_SECONDS)
+
+
+# =========================
+if __name__ == "__main__":
+    main()
