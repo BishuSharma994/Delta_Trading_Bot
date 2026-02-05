@@ -1,3 +1,5 @@
+observer.out
+
 # Runtime market memory
 data/events/*.jsonl
 
