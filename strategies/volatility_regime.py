@@ -14,7 +14,7 @@ class VolatilityRegimeStrategy:
 
     name = "volatility_regime"
 
-    def __init__(self, lookback=60):
+    def __init__(self, lookback: int = 60):
         self.lookback = lookback
 
     def vote(self, features: dict) -> dict:
@@ -28,7 +28,7 @@ class VolatilityRegimeStrategy:
             limit=self.lookback
         )
 
-        if not history or len(history) < 10:
+        if len(history) < 10:
             return {"state": "INSUFFICIENT_HISTORY", "confidence": 0.0}
 
         baseline = median(history)
