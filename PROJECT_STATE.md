@@ -1,146 +1,176 @@
+# Delta Trading Bot — Institutional Intelligence System
 
-
-## CURRENT STATE SNAPSHOT — V2.2 (As of 2026-02-06)
-
-### System Status
-- **Bot Status**: RUNNING (observer.py active on VPS)
-- **Execution**: HARD-GATED (no orders possible)
-- **Mode**: Live data collection + intelligence voting
-- **Stability**: Stable, no import errors, no crashes
-
-Confirmed by:
-- `ps aux | grep observer.py` → python3 observer.py running
-- Continuous event generation in `data/events/`
-
-
-
-## ARCHITECTURE CONFIRMED (LOCKED)
-
-### Layers
-1. **Observer (observer.py)**
-   - Fetches live market data (price, funding)
-   - Writes event-sourced logs (JSONL)
-   - Invokes feature pipeline
-   - Collects strategy votes
-   - Calls evaluator
-   - NEVER executes trades
-
-2. **Memory Layer (data/memory.py)**
-   - Read-only access to historical events
-   - Stable helper contracts:
-     - read_events
-     - get_latest_funding
-     - get_recent_prices
-     - get_latest_book
-     - get_latest_strategy_vote
-     - get_recent_feature_values
-
-3. **Feature Pipeline (core/feature_pipeline.py)**
-   - Builds features from memory only
-   - No API calls
-   - No side effects
-   - Current key features:
-     - funding_rate_abs
-     - time_to_funding_sec
-     - pre_volatility_5m
-     - bid_ask_spread_pct
-
-4. **Strategies (Vote-Only Analysts)**
-   - funding_bias (V2.1)
-     - Emits votes based on funding context
-     - Currently abstaining due to incomplete funding timing data
-   - volatility_regime (V2.2)
-     - Always emits explicit votes
-     - States: NO_DATA, INSUFFICIENT_HISTORY, COMPRESSED, NEUTRAL, EXPANSION_DETECTED
-     - No execution authority
-
-5. **Evaluator (core/evaluator.py)**
-   - Aggregates feature readiness + strategy votes
-   - Emits states:
-     - INSUFFICIENT_DATA (current dominant state)
-     - EDGE_DETECTED (possible future)
-   - Execution remains disabled regardless of state
+**Last Updated:** 2026-02-06  
+**Current Version:** V2.3  
+**Operational Mode:** Live Data Collection + Offline Intelligence  
+**Execution Status:** Permanently Gated (Locked)
 
 ---
 
-## CURRENT LIVE OBSERVATIONS (EXPECTED)
+## 1. Purpose (Non-Negotiable)
 
-### Decision Events
-- Dominant state: `INSUFFICIENT_DATA`
-- Missing features frequently:
-  - pre_volatility_5m
-  - time_to_funding_sec
-- Feature states often logged as:
-  - funding_rate_abs: hot
-  - time_to_funding_sec: cold
-  - pre_volatility_5m: cold
+This project is an institutional-grade **market intelligence and research system** for crypto derivatives.
 
-This is **correct behavior**.
-No trade is justified without confluence.
+Primary objectives:
+- Capital preservation
+- Evidence-driven decision making
+- Conservative abstention over forced signals
+- Strict separation of intelligence and execution
+- Incremental, auditable evolution
 
----
-
-## WHAT IS WORKING (VERIFIED)
-
-- Event sourcing is functioning
-- Strategies are voting and logging explicitly
-- Evaluator is running deterministically
-- No silent failures
-- No accidental execution paths
-- System behaves like an institutional research stack
+This project is **not**:
+- A retail trading bot  
+- A signal-following system  
+- An autonomous execution engine  
+- A self-arming AI trader  
 
 ---
 
-## WHAT IS INTENTIONALLY NOT DONE YET
+## 2. Current Operational State (V2.3)
 
-- No execution logic
-- No backtest-driven parameter tuning
-- No ML / model fitting
-- No indicator stacking
-- No capital scaling
-- No multi-symbol expansion
+### What the system DOES
+- Runs continuously on a VPS (DigitalOcean, Ubuntu)
+- Connects securely to Delta Exchange (India)
+- Collects live market data (price, funding, volatility context)
+- Persists all observations as append-only JSONL events
+- Derives features from historical memory
+- Executes multiple independent analytical strategies
+- Records all strategy votes (including abstentions)
+- Produces high-level decisions
+- Supports offline analysis tooling
 
-All of the above are deferred by design.
+### What the system DOES NOT do
+- Place trades
+- Size positions
+- Allocate capital
+- Manage risk exposure
+- Arm execution automatically
 
----
-
-## NEXT PHASE — V2.3 (OFFLINE INTELLIGENCE)
-
-### Objective
-Analyze collected data offline to answer:
-- How often do strategies emit actionable states?
-- Do funding bias and volatility expansion ever align?
-- What is the frequency and duration of EDGE_DETECTED?
-- Are false positives common?
-
-### Planned Action (DO NOT STOP BOT)
-- Create offline analysis tool:
-  - Location: tools/analyze_votes.py
-  - Reads historical JSONL events
-  - Computes distributions and overlaps
-- Use results to decide:
-  - Whether execution should ever be unlocked
-  - What additional features are required (price structure, volume, etc.)
+All execution paths are disabled by design.
 
 ---
 
-## STRICT RULES FOR FUTURE DEVELOPMENT
+## 3. Analyst Role Model (Locked)
 
-- Live bot = data collection only
-- All intelligence validation happens offline first
-- No execution without statistical evidence
-- No architectural resets between versions
-- Memory layer is the single source of truth
+The system evolves **analyst seniority**, not trading authority.
+
+### V2.x — Junior Analyst (Current State)
+
+Responsibilities:
+- Observe live market conditions
+- Build raw and derived features
+- Emit conservative strategy votes
+- Abstain aggressively under uncertainty
+- Persist all decisions for audit and replay
+- Enable offline analysis of behavior
+
+Limitations:
+- No hypothesis testing
+- No regime labeling
+- No backtest orchestration
+- No execution awareness
+- No capital logic
 
 ---
 
-## SAFE RE-ENTRY INSTRUCTIONS (NEW CHAT)
+### V3.x — Associate Analyst (Planned)
 
-If resuming in a new chat:
-- State that system is at **V2.2**
-- Observer is running live
-- Execution is gated
-- Goal is **offline analysis tooling (V2.3)**
-- No need to re-debug or re-architect
+Responsibilities:
+- Regime classification (trend, range, squeeze)
+- Cross-feature interaction analysis
+- Conditional statistics
+- Pattern frequency and rarity analysis
+- Multi-timeframe context building
+
+Limitations:
+- No execution
+- No position sizing
+- No leverage or capital allocation
+- No self-arming behavior
 
 ---
+
+### V4.x — Senior Analyst (Planned)
+
+Responsibilities:
+- Hypothesis generation and validation
+- Scenario scoring and stress analysis
+- False-positive suppression
+- Strategy disagreement arbitration
+- Confidence calibration over time
+- Offline backtest orchestration
+- Regime-specific research playbooks
+
+Permanent constraints:
+- No order placement
+- No position management
+- No leverage decisions
+- No direct market interaction
+
+---
+
+## 4. Execution Authority (Permanent Rule)
+
+Execution is handled by a **separate, permissioned layer** and is:
+
+- Disabled by default
+- Gated by explicit criteria
+- Manually armed only
+- Auditable
+- Reversible
+
+The analyst system can only output:
+- Recommendations
+- Evidence
+- Confidence
+- Risk flags
+
+It can never output:
+- Buy / Sell orders
+- Position sizes
+- Capital exposure decisions
+
+This separation is permanent and non-negotiable.
+
+---
+
+## 5. Offline Intelligence (V2.3 Complete)
+
+The system includes a full **junior-analyst offline pipeline**:
+
+- Vote distribution analysis  
+- Confluence detection across strategies  
+- Temporal persistence analysis  
+
+Current findings:
+- High abstention rates
+- Zero confluence events
+- Zero persistent non-neutral signals
+
+This confirms conservative and correct behavior.
+
+---
+
+## 6. Current Status Summary
+
+- Live data ingestion: Stable  
+- Strategy execution: Stable  
+- Offline analysis: Working  
+- Signal scarcity: Confirmed  
+- Execution: Locked  
+
+The system is safe to run unattended.
+
+---
+
+## 7. Next Planned Phase
+
+**V2.4 — Offline Replay & Senior-Analyst Scaffolding**
+
+Goals:
+- Replay historical data
+- Measure how often execution gates would open
+- Stress-test analyst conclusions
+- Prepare senior-analyst reasoning layers
+
+No live changes until evidence justifies them.
