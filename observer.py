@@ -1,6 +1,6 @@
 # =========================
-# OBSERVER — INSTITUTIONAL V2.2
-# Data + Intelligence Bridge (Execution GATED)
+# OBSERVER — INSTITUTIONAL V2.2+
+# Multi-Market Data + Intelligence Bridge (Execution GATED)
 # =========================
 
 import os
@@ -39,9 +39,6 @@ from strategies.volatility_regime import VolatilityRegimeStrategy
 # CONFIG
 # =========================
 BASE_URL = "https://api.india.delta.exchange"
-SYMBOL = "BTCUSD"
-PRODUCT_ID = 84
-
 LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
 KILL_SWITCH = False
@@ -51,6 +48,16 @@ API_SECRET = os.getenv("DELTA_API_SECRET")
 
 if not API_KEY or not API_SECRET:
     raise RuntimeError("API keys not loaded")
+
+# -------------------------
+# OBSERVED MARKETS (DATA ONLY)
+# -------------------------
+OBSERVED_MARKETS = [
+    {"symbol": "BTCUSD", "product_id": 84},
+    {"symbol": "ETHUSD", "product_id": 313},
+    {"symbol": "BNBUSD", "product_id": 553},
+    {"symbol": "SOLUSD", "product_id": 761},
+]
 
 # =========================
 # LOGGING
@@ -90,21 +97,21 @@ def signed_get(path):
 
 
 # =========================
-# MARKET DATA
+# MARKET DATA (PARAMETRIC)
 # =========================
-def get_mark_price():
+def get_mark_price(symbol):
     r = requests.get(
-        BASE_URL + f"/v2/tickers/{SYMBOL}",
+        BASE_URL + f"/v2/tickers/{symbol}",
         timeout=HTTP_TIMEOUT,
     )
     r.raise_for_status()
     return float(r.json()["result"]["mark_price"])
 
 
-def get_funding_rate():
+def get_funding_rate(product_id):
     try:
         r = requests.get(
-            BASE_URL + f"/v2/products/{PRODUCT_ID}",
+            BASE_URL + f"/v2/products/{product_id}",
             timeout=HTTP_TIMEOUT,
         )
         r.raise_for_status()
@@ -117,7 +124,7 @@ def get_funding_rate():
 # MAIN LOOP
 # =========================
 def main():
-    logging.info("OBSERVER STARTED")
+    logging.info("MULTI-MARKET OBSERVER STARTED")
 
     funding_strategy = FundingBiasStrategy()
     volatility_strategy = VolatilityRegimeStrategy()
@@ -126,66 +133,69 @@ def main():
         try:
             now_utc = datetime.now(timezone.utc).isoformat()
 
-            price = get_mark_price()
-            funding = get_funding_rate()
+            for market in OBSERVED_MARKETS:
+                symbol = market["symbol"]
+                product_id = market["product_id"]
 
-            # -------- EVENT INGESTION --------
-            write_event("price_snapshot.jsonl", {
-                "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "product_id": PRODUCT_ID,
-                "mark_price": price,
-                "index_price": price,
-                "best_bid": price * 0.999,
-                "best_ask": price * 1.001,
-            })
+                price = get_mark_price(symbol)
+                funding = get_funding_rate(product_id)
 
-            if funding is not None:
-                write_event("funding_snapshot.jsonl", {
+                # -------- EVENT INGESTION --------
+                write_event("price_snapshot.jsonl", {
                     "timestamp_utc": now_utc,
-                    "symbol": SYMBOL,
-                    "product_id": PRODUCT_ID,
-                    "funding_rate": funding,
-                    "next_funding_time_utc": (
-                        datetime.now(timezone.utc)
-                        .replace(minute=0, second=0, microsecond=0)
-                        .isoformat()
-                    ),
+                    "symbol": symbol,
+                    "product_id": product_id,
+                    "mark_price": price,
+                    "index_price": price,
+                    "best_bid": price * 0.999,
+                    "best_ask": price * 1.001,
                 })
 
-            # -------- FEATURES --------
-            features = build_feature_vector(SYMBOL)
+                if funding is not None:
+                    write_event("funding_snapshot.jsonl", {
+                        "timestamp_utc": now_utc,
+                        "symbol": symbol,
+                        "product_id": product_id,
+                        "funding_rate": funding,
+                        "next_funding_time_utc": (
+                            datetime.now(timezone.utc)
+                            .replace(minute=0, second=0, microsecond=0)
+                            .isoformat()
+                        ),
+                    })
 
-            # -------- STRATEGY VOTES --------
-            funding_vote = funding_strategy.vote(features)
-            volatility_vote = volatility_strategy.vote(features)
+                # -------- FEATURES --------
+                features = build_feature_vector(symbol)
 
-            write_event("strategy_votes.jsonl", {
-                "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "strategy": funding_strategy.name,
-                "vote": funding_vote,
-            })
+                # -------- STRATEGY VOTES --------
+                funding_vote = funding_strategy.vote(features)
+                volatility_vote = volatility_strategy.vote(features)
 
-            write_event("strategy_votes.jsonl", {
-                "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "strategy": volatility_strategy.name,
-                "vote": volatility_vote,
-            })
+                write_event("strategy_votes.jsonl", {
+                    "timestamp_utc": now_utc,
+                    "symbol": symbol,
+                    "strategy": funding_strategy.name,
+                    "vote": funding_vote,
+                })
 
-            # -------- EVALUATION --------
-            decision = evaluate(features)
+                write_event("strategy_votes.jsonl", {
+                    "timestamp_utc": now_utc,
+                    "symbol": symbol,
+                    "strategy": volatility_strategy.name,
+                    "vote": volatility_vote,
+                })
 
-            logging.info("DECISION | %s", decision)
-            logging.info("NO EXECUTION — STATE: %s", decision.get("state"))
+                # -------- EVALUATION --------
+                decision = evaluate(features)
 
-            write_event("decision.jsonl", {
-                "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "decision": decision,
-                "feature_states": features.get("_feature_states", {}),
-            })
+                logging.info("DECISION | %s | %s", symbol, decision.get("state"))
+
+                write_event("decision.jsonl", {
+                    "timestamp_utc": now_utc,
+                    "symbol": symbol,
+                    "decision": decision,
+                    "feature_states": features.get("_feature_states", {}),
+                })
 
             time.sleep(LOOP_INTERVAL_SECONDS)
 
