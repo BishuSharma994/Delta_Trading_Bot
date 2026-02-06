@@ -26,3 +26,6 @@ data/*
 __pycache__/
 bot.log
 *.log
+
+# Gate stress test outputs
+tools/reports/gate_stress_*.json
