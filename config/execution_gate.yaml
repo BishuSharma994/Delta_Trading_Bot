@@ -1,0 +1,33 @@
+# Execution Gate Configuration
+# V2.4 — Offline Replay & Stress-Testing
+# Read-only. No execution.
+
+gate:
+  enabled: true
+  description: "Permission gate for execution eligibility (offline evaluation only)"
+
+requirements:
+  confluence:
+    min_strategies: 2          # >=2 strategies must agree
+    same_bias: true            # bias must match (+1 or -1)
+    same_symbol: true
+    window_seconds: 60         # same time window for agreement
+
+  persistence:
+    min_consecutive_votes: 2   # >=2 consecutive non-neutral votes
+
+  confidence:
+    min_average: 0.30          # average confidence across agreeing strategies
+
+safety:
+  require_kill_switch_off: true
+  require_no_open_position: true
+  cooldown_seconds: 900        # virtual cooldown between gate opens (replay only)
+
+outputs:
+  allow_state: "ALLOW"
+  deny_state: "DENY"
+
+logging:
+  record_denials: true
+  record_allows: true
