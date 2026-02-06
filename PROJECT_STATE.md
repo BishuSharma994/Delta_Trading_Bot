@@ -1,4 +1,4 @@
----
+
 
 ## CURRENT STATE SNAPSHOT — V2.2 (As of 2026-02-06)
 
@@ -12,7 +12,7 @@ Confirmed by:
 - `ps aux | grep observer.py` → python3 observer.py running
 - Continuous event generation in `data/events/`
 
----
+
 
 ## ARCHITECTURE CONFIRMED (LOCKED)
 
