@@ -1,0 +1,20 @@
+{
+  "funding_bias": {
+    "total_votes": 1423,
+    "abstain_rate_pct": 100.0,
+    "non_neutral_rate_pct": 0.0,
+    "bias_distribution": {
+      "0": 1423
+    },
+    "avg_confidence": 0.0
+  },
+  "volatility_regime": {
+    "total_votes": 12,
+    "abstain_rate_pct": 100.0,
+    "non_neutral_rate_pct": 0.0,
+    "bias_distribution": {
+      "0": 12
+    },
+    "avg_confidence": 0.0
+  }
+}

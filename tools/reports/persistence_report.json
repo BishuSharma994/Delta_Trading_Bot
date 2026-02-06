@@ -1,0 +1,14 @@
+{
+  "funding_bias::BTCUSD": {
+    "total_votes": 1429,
+    "longest_streak": 0,
+    "streaks_detected": [],
+    "num_persistent_events": 0
+  },
+  "volatility_regime::BTCUSD": {
+    "total_votes": 18,
+    "longest_streak": 0,
+    "streaks_detected": [],
+    "num_persistent_events": 0
+  }
+}
