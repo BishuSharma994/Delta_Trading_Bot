@@ -1,99 +1,67 @@
 # core/evaluator.py
-# Deterministic finite-state evaluator (institutional grade)
+# Institutional Evaluator — V2.2
+# Execution GATED
 
 from datetime import datetime, timezone
+from data.memory import get_latest_strategy_vote
 
-REQUIRED_FEATURES = {
+# Required features for base evaluation
+REQUIRED_FEATURES = [
     "funding_rate_abs",
     "time_to_funding_sec",
     "pre_volatility_5m",
-}
-
-EDGE_SCORE_THRESHOLD = 0.75
-PERSISTENCE_REQUIRED = 3
-
-_state = "INSUFFICIENT_DATA"
-_persist = 0
+]
 
 
-def _now():
-    return datetime.now(timezone.utc).isoformat()
+def evaluate(features: dict) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
 
+    # -------------------------
+    # FEATURE PRESENCE CHECK
+    # -------------------------
+    missing = [f for f in REQUIRED_FEATURES if f not in features]
 
-def evaluate(features: dict):
-    global _state, _persist
-
-    # ---------------------------
-    # MISSING FEATURES
-    # ---------------------------
-    missing = [k for k in REQUIRED_FEATURES if k not in features]
-
-    decision = {
-        "ts": _now(),
-        "state": None,
-        "score": 0.0,
-        "missing": missing,
-        "notes": "",
-    }
-
-    # ---------------------------
-    # INSUFFICIENT DATA
-    # ---------------------------
     if missing:
-        _state = "INSUFFICIENT_DATA"
-        _persist = 0
-        decision["state"] = _state
-        decision["notes"] = "Required features missing"
-        return decision
+        return {
+            "ts": now,
+            "state": "INSUFFICIENT_DATA",
+            "score": 0.0,
+            "missing": missing,
+            "notes": "Required features missing",
+        }
 
-    # ---------------------------
-    # SCORE (DEFENSIVE)
-    # ---------------------------
-    score = 0.0
+    # -------------------------
+    # STRATEGY CONFLUENCE
+    # -------------------------
+    funding_vote = get_latest_strategy_vote("funding_bias")
+    vol_vote = get_latest_strategy_vote("volatility_regime")
 
-    fr = features.get("funding_rate_abs")
-    if isinstance(fr, (int, float)):
-        score += min(fr * 10, 0.4)
+    supporting_votes = []
 
-    vol = features.get("pre_volatility_5m")
-    if isinstance(vol, (int, float)):
-        score += min(vol * 5, 0.4)
+    if funding_vote and funding_vote["state"] not in ("NEUTRAL", "NO_DATA"):
+        supporting_votes.append("funding_bias")
 
-    ttf = features.get("time_to_funding_sec")
-    if isinstance(ttf, (int, float)) and ttf < 3600:
-        score += 0.1
+    if vol_vote and vol_vote["state"] == "EXPANSION_DETECTED":
+        supporting_votes.append("volatility_regime")
 
-    score = round(min(score, 1.0), 4)
-    decision["score"] = score
+    # -------------------------
+    # EDGE DETECTION (NO EXECUTION)
+    # -------------------------
+    if len(supporting_votes) >= 2:
+        return {
+            "ts": now,
+            "state": "EDGE_DETECTED",
+            "score": round(len(supporting_votes) / 2, 2),
+            "supporting_votes": supporting_votes,
+            "notes": "Multi-strategy confluence detected",
+        }
 
-    # ---------------------------
-    # NO EDGE
-    # ---------------------------
-    if score < EDGE_SCORE_THRESHOLD:
-        _state = "NO_EDGE"
-        _persist = 0
-        decision["state"] = _state
-        decision["notes"] = "Composite below threshold"
-        return decision
-
-    # ---------------------------
-    # EDGE DETECTED
-    # ---------------------------
-    if _state != "EDGE_DETECTED":
-        _persist = 0
-
-    _state = "EDGE_DETECTED"
-    _persist += 1
-
-    decision["state"] = _state
-    decision["notes"] = f"Edge persistence {_persist}/{PERSISTENCE_REQUIRED}"
-
-    # ---------------------------
-    # EDGE APPROVED (STILL GATED)
-    # ---------------------------
-    if _persist >= PERSISTENCE_REQUIRED:
-        _state = "EDGE_APPROVED"
-        decision["state"] = _state
-        decision["notes"] = "Edge persisted; execution gated"
-
-    return decision
+    # -------------------------
+    # DEFAULT SAFE STATE
+    # -------------------------
+    return {
+        "ts": now,
+        "state": "INSUFFICIENT_DATA",
+        "score": 0.0,
+        "notes": "Confluence not satisfied",
+    }

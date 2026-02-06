@@ -1,6 +1,6 @@
 # =========================
-# OBSERVER — INSTITUTIONAL V2.1
-# Trading + Intelligence Bridge (Execution GATED)
+# OBSERVER — INSTITUTIONAL V2.2
+# Data + Intelligence Bridge (Execution GATED)
 # =========================
 
 import os
@@ -19,21 +19,21 @@ from dotenv import load_dotenv
 # -------------------------
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
-print("OBSERVER CWD:", os.getcwd())
 
 # -------------------------
 # LOAD ENV (ABSOLUTE PATH)
 # -------------------------
 load_dotenv(dotenv_path=BASE_DIR / ".env")
-print("OBSERVER BOOTSTRAP COMPLETE")
 
 # -------------------------
-# IMPORT INTERNAL MODULES
+# INTERNAL IMPORTS
 # -------------------------
 from core.feature_pipeline import build_feature_vector
 from core.evaluator import evaluate
 from utils.io import write_event
+
 from strategies.funding_bias import FundingBiasStrategy
+from strategies.volatility_regime import VolatilityRegimeStrategy
 
 # =========================
 # CONFIG
@@ -120,19 +120,14 @@ def main():
     logging.info("OBSERVER STARTED")
 
     funding_strategy = FundingBiasStrategy()
+    volatility_strategy = VolatilityRegimeStrategy()
 
     while True:
         try:
-            print("-" * 60)
             now_utc = datetime.now(timezone.utc).isoformat()
-            print("UTC:", now_utc)
 
             price = get_mark_price()
             funding = get_funding_rate()
-
-            print("Symbol:", SYMBOL)
-            print("Mark Price:", price)
-            print("Funding Rate:", funding)
 
             # -------- EVENT INGESTION --------
             write_event("price_snapshot.jsonl", {
@@ -158,11 +153,30 @@ def main():
                     ),
                 })
 
-            # -------- INTELLIGENCE --------
+            # -------- FEATURES --------
             features = build_feature_vector(SYMBOL)
+
+            # -------- STRATEGY VOTES --------
+            funding_vote = funding_strategy.vote(features)
+            volatility_vote = volatility_strategy.vote(features)
+
+            write_event("strategy_votes.jsonl", {
+                "timestamp_utc": now_utc,
+                "symbol": SYMBOL,
+                "strategy": funding_strategy.name,
+                "vote": funding_vote,
+            })
+
+            write_event("strategy_votes.jsonl", {
+                "timestamp_utc": now_utc,
+                "symbol": SYMBOL,
+                "strategy": volatility_strategy.name,
+                "vote": volatility_vote,
+            })
+
+            # -------- EVALUATION --------
             decision = evaluate(features)
 
-            print("DECISION:", decision)
             logging.info("DECISION | %s", decision)
             logging.info("NO EXECUTION — STATE: %s", decision.get("state"))
 
@@ -173,17 +187,6 @@ def main():
                 "feature_states": features.get("_feature_states", {}),
             })
 
-            # -------- STRATEGY VOTES (V2.1) --------
-            funding_vote = funding_strategy.vote(features)
-
-            write_event("strategy_votes.jsonl", {
-                "timestamp_utc": now_utc,
-                "symbol": SYMBOL,
-                "strategy": funding_strategy.name,
-                "vote": funding_vote,
-            })
-
-            print("SLEEPING:", LOOP_INTERVAL_SECONDS, "seconds")
             time.sleep(LOOP_INTERVAL_SECONDS)
 
         except KeyboardInterrupt:
@@ -191,11 +194,9 @@ def main():
             break
 
         except Exception as e:
-            print("ERROR:", str(e))
-            logging.exception("Unhandled exception")
+            logging.exception("Unhandled exception: %s", str(e))
             time.sleep(LOOP_INTERVAL_SECONDS)
 
 
-# =========================
 if __name__ == "__main__":
     main()
