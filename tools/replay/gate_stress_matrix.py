@@ -1,32 +1,32 @@
 """
 V2.5 Gate Stress Parameter Matrix
-SPEC ONLY — NO EXECUTION
+REPO-ALIGNED — SPEC ONLY
 """
 
 GATE_STRESS_MATRIX = [
     {
-        "label": "volatility_cap",
-        "param_path": ["volatility", "max_allowed"],
-        "sweep_multipliers": [0.5, 0.75, 1.0, 1.25, 1.5],
+        "label": "min_strategies",
+        "param_path": ["requirements", "confluence", "min_strategies"],
+        "sweep_values": [1, 2, 3, 4],
     },
     {
-        "label": "liquidity_floor",
-        "param_path": ["liquidity", "min_depth"],
-        "sweep_multipliers": [0.5, 0.75, 1.0, 1.25],
+        "label": "confluence_window",
+        "param_path": ["requirements", "confluence", "window_seconds"],
+        "sweep_values": [30, 60, 120, 300],
     },
     {
-        "label": "spread_cap",
-        "param_path": ["spread", "max_spread_bps"],
-        "sweep_multipliers": [0.5, 0.8, 1.0, 1.2],
+        "label": "confidence_threshold",
+        "param_path": ["requirements", "confidence", "min_average"],
+        "sweep_values": [0.4, 0.5, 0.6, 0.7],
     },
     {
-        "label": "slippage_tolerance",
-        "param_path": ["slippage", "max_expected"],
-        "sweep_multipliers": [0.5, 1.0, 1.5, 2.0],
+        "label": "persistence_votes",
+        "param_path": ["requirements", "persistence", "min_consecutive_votes"],
+        "sweep_values": [1, 2, 3],
     },
     {
-        "label": "session_window",
-        "param_path": ["session", "allowed_windows"],
-        "sweep_mode": "expand_only",
+        "label": "cooldown_seconds",
+        "param_path": ["safety", "cooldown_seconds"],
+        "sweep_values": [0, 30, 60, 120],
     },
 ]

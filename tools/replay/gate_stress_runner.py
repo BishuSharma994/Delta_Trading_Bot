@@ -1,31 +1,33 @@
 """
 V2.5 Gate Stress Test Runner
-OFFLINE ONLY
+OFFLINE ONLY — REPO-ALIGNED
 """
 
-from typing import Dict, List
-from pathlib import Path
 import json
 import copy
+from typing import Dict, List
+from pathlib import Path
 
 from tools.replay.replay_runner import run_replay
-from tools.replay.gate_evaluator import GateEvaluator
 from tools.replay.loaders import (
-    load_replay_config,
-    load_market_data,
-    load_execution_gate_config,
+    load_votes,
+    load_confluence,
+    load_persistence,
 )
 
 REPORTS_DIR = Path("tools/reports")
 
 
 class GateStressRunner:
-    def __init__(self, replay_config_path: str):
-        self.replay_config = load_replay_config(replay_config_path)
-        self.market_data = load_market_data(self.replay_config)
-        self.base_gate_config = load_execution_gate_config(
-            "config/execution_gate.yaml"
-        )
+    def __init__(self):
+        self.votes = load_votes("data/events/strategy_votes.jsonl")
+        self.confluence = load_confluence("tools/reports/confluence_events.json")
+        self.persistence = load_persistence("tools/reports/persistence_report.json")
+
+        with open("config/execution_gate.yaml", "r") as f:
+            self.base_gate_config = json.loads(
+                json.dumps(__import__("yaml").safe_load(f))
+            )
 
     def _inject_param(
         self, gate_config: Dict, param_path: List[str], value
@@ -50,18 +52,15 @@ class GateStressRunner:
                 self.base_gate_config, param_path, value
             )
 
-            evaluator = GateEvaluator(gate_cfg)
-
-            gate_events = run_replay(
-                market_data=self.market_data,
-                replay_config=self.replay_config,
-                gate_evaluator=evaluator,
+            summary = run_replay(
+                votes=self.votes,
+                confluence_events=self.confluence,
+                persistence_report=self.persistence,
+                gate_config=gate_cfg,
             )
 
-            summary = self._summarize(gate_events)
-
-            report_path = REPORTS_DIR / f"gate_stress_{label}_{value}.json"
-            with report_path.open("w") as f:
+            out_path = REPORTS_DIR / f"gate_stress_{label}_{value}.json"
+            with out_path.open("w") as f:
                 json.dump(
                     {
                         "parameter": ".".join(param_path),
@@ -71,12 +70,3 @@ class GateStressRunner:
                     f,
                     indent=2,
                 )
-
-    @staticmethod
-    def _summarize(gate_events: List[Dict]) -> Dict:
-        counts = {"ALLOW": 0, "BLOCK": 0}
-        for evt in gate_events:
-            decision = evt.get("decision")
-            if decision in counts:
-                counts[decision] += 1
-        return counts
