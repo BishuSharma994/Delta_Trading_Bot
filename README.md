@@ -1,13 +1,29 @@
-# Delta Funding Bot
+# Delta Trading Bot — Institutional Phased System
 
-Production-grade automated trading bot for Delta Exchange India.
+## Overview
 
-## Features (v1)
-- Funding-based entries
-- Single-position enforcement
-- Time-based exit
-- Emergency kill switch
-- File logging
+This repository contains an **institutional-style trading research system** built with a strict separation between:
 
-## Disclaimer
-Trades real money. Use at your own risk.
+- Data collection
+- Intelligence / analysis
+- Trade execution (currently disabled)
+
+The system is designed to **observe, reason, and only then act**, mirroring how professional trading desks operate.
+
+This is **not** a retail trading bot, signal generator, or execution-first system.
+
+---
+
+## Current Status
+
+- **Version**: V2.2  
+- **Mode**: Live data collection + intelligence voting  
+- **Execution**: HARD-GATED (no trades possible)  
+- **Environment**: Delta Exchange (India), VPS-hosted  
+- **Bot**: Running continuously (`observer.py`)
+
+---
+
+## System Flow (Authoritative)
+
+
