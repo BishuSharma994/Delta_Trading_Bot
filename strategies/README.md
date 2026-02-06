@@ -1,14 +1,28 @@
-# Strategy Layer (Design Contract)
+# Delta Trading Bot — Institutional Phased System
 
-- Strategies DO NOT execute trades
-- Strategies DO NOT access APIs
-- Strategies ONLY read features
-- Strategies emit votes, not decisions
+## Purpose
 
-Evaluator (future):
-- Collects strategy votes
-- Applies risk gates
-- Maintains capital discipline
-- Owns final decision authority
+This repository implements an **institutional-style trading research system** whose primary objective is **capital preservation through evidence-based decision making**.
 
-No strategy can bypass evaluator.
+The system is intentionally designed to:
+- Separate data collection, intelligence, and execution
+- Log every observation and decision deterministically
+- Refuse trades unless statistically and structurally justified
+- Evolve in phases without breaking prior logic
+
+This is **not** a retail trading bot, signal generator, or execution-first system.
+
+---
+
+## Current Status
+
+- **Version**: V2.2  
+- **State**: Live data collection + intelligence voting  
+- **Execution**: HARD-GATED (no trades possible)  
+- **Environment**: Delta Exchange (India), VPS-hosted  
+- **Bot Status**: Running continuously  
+
+---
+
+## System Flow (Authoritative)
+
