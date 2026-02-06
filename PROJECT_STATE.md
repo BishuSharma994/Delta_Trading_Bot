@@ -1,22 +1,22 @@
-# Delta Trading Bot — Institutional Intelligence System
+# Delta Trading Bot — Institutional Market Intelligence System
 
 **Last Updated:** 2026-02-06  
-**Current Version:** V2.3  
-**Operational Mode:** Live Data Collection + Offline Intelligence  
+**Current Version:** V2.4 (Offline Research Phase)  
+**Operational Mode:** Live Data Collection + Offline Analysis  
 **Execution Status:** Permanently Gated (Locked)
 
 ---
 
 ## 1. Purpose (Non-Negotiable)
 
-This project is an institutional-grade **market intelligence and research system** for crypto derivatives.
+This project is an institutional-grade **market intelligence and research system** for crypto derivatives markets.
 
-Primary objectives:
-- Capital preservation
-- Evidence-driven decision making
-- Conservative abstention over forced signals
-- Strict separation of intelligence and execution
-- Incremental, auditable evolution
+The system is designed to:
+- Preserve capital above all else
+- Prefer abstention over false certainty
+- Separate intelligence from authority
+- Accumulate evidence before action
+- Evolve safely and auditable across versions
 
 This project is **not**:
 - A retail trading bot  
@@ -26,27 +26,26 @@ This project is **not**:
 
 ---
 
-## 2. Current Operational State (V2.3)
+## 2. Current Operational State
 
-### What the system DOES
+### Live System
 - Runs continuously on a VPS (DigitalOcean, Ubuntu)
 - Connects securely to Delta Exchange (India)
 - Collects live market data (price, funding, volatility context)
-- Persists all observations as append-only JSONL events
+- Writes append-only JSONL event logs
 - Derives features from historical memory
-- Executes multiple independent analytical strategies
+- Executes analytical strategies in **read-only mode**
 - Records all strategy votes (including abstentions)
 - Produces high-level decisions
-- Supports offline analysis tooling
+- Never places trades
 
-### What the system DOES NOT do
-- Place trades
-- Size positions
-- Allocate capital
-- Manage risk exposure
-- Arm execution automatically
+### Execution
+- Disabled by design
+- Gated behind explicit permission logic
+- Requires manual arming (not implemented)
+- No execution code is active
 
-All execution paths are disabled by design.
+The system is safe to run unattended.
 
 ---
 
@@ -54,20 +53,20 @@ All execution paths are disabled by design.
 
 The system evolves **analyst seniority**, not trading authority.
 
-### V2.x — Junior Analyst (Current State)
+### V2.x — Junior Analyst (Completed)
 
 Responsibilities:
 - Observe live market conditions
 - Build raw and derived features
 - Emit conservative strategy votes
 - Abstain aggressively under uncertainty
-- Persist all decisions for audit and replay
+- Persist all observations and decisions
 - Enable offline analysis of behavior
 
 Limitations:
 - No hypothesis testing
 - No regime labeling
-- No backtest orchestration
+- No replay orchestration
 - No execution awareness
 - No capital logic
 
@@ -82,7 +81,7 @@ Responsibilities:
 - Pattern frequency and rarity analysis
 - Multi-timeframe context building
 
-Limitations:
+Constraints:
 - No execution
 - No position sizing
 - No leverage or capital allocation
@@ -134,43 +133,82 @@ This separation is permanent and non-negotiable.
 
 ---
 
-## 5. Offline Intelligence (V2.3 Complete)
+## 5. Offline Intelligence (V2.3 — Completed)
 
-The system includes a full **junior-analyst offline pipeline**:
+The system includes a complete **junior-analyst offline intelligence pipeline**:
 
-- Vote distribution analysis  
-- Confluence detection across strategies  
-- Temporal persistence analysis  
+- Strategy vote distribution analysis
+- Cross-strategy confluence detection
+- Temporal persistence analysis
 
-Current findings:
+Observed behavior:
 - High abstention rates
-- Zero confluence events
-- Zero persistent non-neutral signals
+- No confluence events
+- No persistent non-neutral signals
 
-This confirms conservative and correct behavior.
+This confirms conservative, correct system behavior.
 
 ---
 
-## 6. Current Status Summary
+## 6. Current Phase — V2.4 (Offline Research Only)
 
-- Live data ingestion: Stable  
+### Definition
+
+V2.4 is a **research-only phase** focused on **offline replay design, gate definition, and stress-testing**.
+
+This phase:
+- Does **not** introduce execution
+- Does **not** modify live trading behavior
+- Does **not** expand authority
+- Does **not** permit coupling to capital
+
+All work in V2.4 is:
+- Read-only
+- Offline
+- Descriptive
+- Analytical
+
+---
+
+### Objectives of V2.4
+
+- Define execution gate criteria (configuration only)
+- Replay historical data offline
+- Measure how often execution *would* be permitted
+- Stress-test false positives
+- Validate governance logic
+- Prepare senior-analyst research scaffolding
+
+---
+
+## 7. Current System Status Summary
+
+- Live ingestion: Stable  
 - Strategy execution: Stable  
 - Offline analysis: Working  
 - Signal scarcity: Confirmed  
-- Execution: Locked  
+- Execution authority: Locked  
 
-The system is safe to run unattended.
+The system is behaving exactly as intended.
 
 ---
 
-## 7. Next Planned Phase
+## 8. Next Planned Phase
 
-**V2.4 — Offline Replay & Senior-Analyst Scaffolding**
+**V2.4 continuation:** Offline replay & gate stress-testing  
+**Future:** V3.x — Associate Analyst capabilities  
 
-Goals:
-- Replay historical data
-- Measure how often execution gates would open
-- Stress-test analyst conclusions
-- Prepare senior-analyst reasoning layers
+Execution will only be considered after:
+- Sufficient real evidence
+- Stable analyst behavior
+- Successful offline replay validation
+- Explicit manual authorization
 
-No live changes until evidence justifies them.
+---
+
+## 9. Current Path (Authoritative)
+
+**You are here:**  
+**V2.4 — Offline Research & Gate Design (No Execution)**
+
+This status should be used as the reference point for all future discussions.
