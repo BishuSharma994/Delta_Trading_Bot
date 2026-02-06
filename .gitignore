@@ -29,3 +29,6 @@ bot.log
 
 # Gate stress test outputs
 tools/reports/gate_stress_*.json
+
+# Offline backtest artifacts (never commit)
+tools/reports/offline_backtest/
