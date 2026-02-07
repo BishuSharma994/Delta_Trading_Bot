@@ -15,3 +15,18 @@ tools/reports/**
 __pycache__/
 *.pyc
 *.pyo
+
+# =========================
+# Runtime & Observation Data (NEVER COMMIT)
+# =========================
+
+# Logs
+*.log
+
+# Live / archived event data
+data/events/
+data/archive/
+
+# Temporary or test artifacts
+test_*.json
+test_*.jsonl
