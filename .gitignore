@@ -30,3 +30,4 @@ data/archive/
 # Temporary or test artifacts
 test_*.json
 test_*.jsonl
+observer.out
