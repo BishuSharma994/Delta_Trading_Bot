@@ -1,123 +1,65 @@
-# Delta Trading Bot — Analyst-First Market Intelligence System
+# Delta Trading Bot — Institutional Market Intelligence System
+
+This repository contains an institutional-grade research system for
+crypto derivatives markets.
 
 ---
 
-## Overview
+## WHAT THIS SYSTEM IS
 
-This repository contains an institutional-grade **crypto derivatives market intelligence system** designed to study markets conservatively before any execution logic is introduced.
-
-The system behaves like a **research desk**, not a trader.
-
----
-
-## Design Philosophy
-
-- Intelligence matures before authority  
-- Abstention is preferred over false certainty  
-- Execution is permissioned, not inferred  
-- Capital preservation is the primary objective  
-- Every decision is auditable  
+- A market observer
+- A hypothesis falsification engine
+- A stress-testing research platform
+- A capital-preserving intelligence layer
 
 ---
 
-## High-Level Architecture
+## WHAT THIS SYSTEM IS NOT
 
-1. **Observer (Live System)**  
-   - Collects live market data  
-   - Writes append-only events  
-   - Executes strategies in read-only mode  
-   - Never places trades  
-
-2. **Memory Layer**  
-   - Event-sourced storage (JSONL)  
-   - Immutable historical record  
-
-3. **Feature Pipeline**  
-   - Derives features from memory  
-   - Deterministic  
-   - No API calls  
-
-4. **Strategies**  
-   - Independent analytical viewpoints  
-   - Conservative voting behavior  
-   - Explicit abstention  
-
-5. **Offline Analysis Tools**  
-   - Vote behavior analysis  
-   - Strategy confluence detection  
-   - Temporal persistence measurement  
-
-6. **Execution Gate (Future)**  
-   - Permissioned system  
-   - Manual arming only  
-   - No automatic trading  
+- Not a trading bot
+- Not a signal generator
+- Not an execution engine
+- Not an autonomous agent
 
 ---
 
-## Analyst Role Evolution
+## CURRENT STATUS
 
-The system evolves through analyst roles:
-
-- **Junior Analyst (V2.x)**  
-  Observation, voting, abstention, logging  
-
-- **Associate Analyst (V3.x)**  
-  Regime awareness and interaction analysis  
-
-- **Senior Analyst (V4.x)**  
-  Hypothesis testing and research orchestration  
-
-At no stage does the analyst directly trade.
+- Version: V4_IMPLEMENT_COMPLETE
+- Execution: Permanently gated
+- Safety: Verified
+- Operation: Unattended, read-only
 
 ---
 
-## Security & Safety
+## ARCHITECTURE HIGHLIGHTS
 
-- API keys stored via environment variables  
-- Execution disabled by default  
-- Kill switch implemented  
-- No hard-coded secrets  
-- Repository remains private until hardened  
-
----
-
-## Current Status
-
-- Live bot running safely  
-- No execution enabled  
-- Offline analysis complete  
-- Ready for replay and senior-analyst research  
+- Append-only event logs
+- Deterministic offline analysis
+- Multi-layer abstention enforcement
+- Stress-first research design
+- Full auditability
 
 ---
 
-## Intended Use
+## EXECUTION POLICY
 
-This project is intended for:
-- Research
-- Learning institutional system design
-- Building safe, auditable trading intelligence
+This repository will never contain execution logic.
 
-It is not intended for:
-- Retail automation
-- Unsupervised capital deployment
-- High-frequency trading
+Any future execution system:
+- Must live in a separate repository
+- Must consume locked research outputs
+- Must be manually authorized
+- Must be reversible and kill-switch protected
 
 ---
 
-## Project Roadmap
+## OPERATION
 
-- V2.3 — Junior analyst + offline intelligence (complete)
-- V2.4 — Offline replay & gate stress-testing
-- V3.x — Associate analyst capabilities
-- V4.x — Senior analyst research desk
-
-Execution will only be considered after extensive evidence.
+The system may be left running continuously.
+Inaction is expected.
+Rarity is a feature, not a bug.
 
 ---
 
-## Current Path
-
-**V2.3 — Junior Analyst + Offline Intelligence (Complete)**
-
-Next phase:
-**V2.4 — Offline Replay & Senior-Analyst Scaffolding**
+END

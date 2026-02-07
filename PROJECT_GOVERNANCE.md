@@ -1,130 +1,56 @@
-# Delta Trading Bot — Institutional Market Intelligence System
+# GOVERNANCE — DELTA TRADING BOT (V4 LOCK)
 
-Status: AUTHORITATIVE  
-Last Updated: 2026-02-07  
-Current Locked Phase: V3.x — Associate Analyst (Offline Intelligence)
+This document is the single source of truth for this repository.
 
 ---
 
-## 0. GOVERNANCE STATEMENT (NON-NEGOTIABLE)
+## CORE PRINCIPLES
 
-This document is the single source of truth for this project.
-
-Any action that:
-- Introduces execution authority
-- Loosens risk controls
-- Modifies completed phases
-- Hallucinates capabilities
-- Skips phases
-
-is invalid and must be rejected.
+1. Capital preservation overrides all objectives
+2. Abstention is a valid and preferred outcome
+3. Evidence must precede any action
+4. Research and execution are permanently separated
+5. Everything must be auditable and reproducible
 
 ---
 
-## 1. SYSTEM IDENTITY (LOCKED)
+## HARD INVARIANTS
 
-System Type:  
-Institutional-grade market intelligence and research system.
-
-Explicitly NOT:
-- Retail trading bot
-- Signal generator
-- Autonomous execution system
-- Self-arming AI trader
-
-Core Philosophy:
-- Capital preservation above all
-- Abstention over false certainty
-- Evidence before action
-- Intelligence strictly separated from execution
-- Full auditability
-
----
-
-## 2. HARD INVARIANTS (NEVER CHANGE)
-
-1. Execution is permanently gated  
-2. Live system is read-only  
-3. All logic validated offline first  
-4. Analyst seniority model enforced  
-5. No revenge trading by construction  
-
----
-
-## 3. CURRENT SYSTEM REALITY (FROZEN)
-
-- Live VPS observer running
-- Multi-symbol observation enabled
-- Append-only JSONL logs
-- Strategy votes recorded (including abstentions)
 - No execution code exists
-- Safe to run unattended
+- No execution code may be added
+- No capital logic may be introduced
+- No optimization for profit is allowed
+- No online learning is permitted
 
-Execution Status: PERMANENTLY DISABLED
-
----
-
-## 4. ANALYST ROLE MODEL
-
-### V2.x — Junior Analyst (COMPLETED)
-- Market observation
-- Feature computation
-- Conservative voting
-- Aggressive abstention
-- Full persistence
-
-### V3.x — Associate Analyst (COMPLETED)
-- Abstention discipline measurement
-- Persistence & confluence analysis
-- Rarity quantification
-- Offline-only intelligence validation
-
-### V4.x — Senior Analyst (DESIGN ONLY)
-- Hypothesis generation
-- Scenario analysis
-- Confidence calibration
-- Research orchestration
-
-No execution authority.
+Violation of any invariant invalidates the system.
 
 ---
 
-## 5. COMPLETED PHASES (IMMUTABLE)
+## AUTHORITY MODEL
 
-- V2.3 Offline Intelligence
-- V2.4 Execution Gate (Locked)
-- V3.x Abstention Analysis
-- V3.x Persistence Analysis
-- V3.x Rarity Analysis
+This system is a research analyst, not a trader.
 
----
+It may:
+- Observe markets
+- Generate features
+- Test hypotheses offline
+- Stress and falsify ideas
 
-## 6. CURRENT VERIFIED STATE
-
-- Abstention Rate: 100%
-- Persistence: Zero impulsive streaks
-- Rarity: Infinite (no false eligibility)
-- Capital Protection: Verified
-
-The system behaves as an institutional risk engine.
+It may never:
+- Place trades
+- Suggest trades
+- Size positions
+- Manage capital
+- Arm itself
 
 ---
 
-## 7. FUTURE ROADMAP (NO SKIPPING)
+## VERSION LOCK
 
-- V4_DESIGN: Senior Analyst specifications only
-- V4_IMPLEMENT: Offline research tooling
-- V5_EXECUTION: Separate project, manual authorization only
+- V4_IMPLEMENT is COMPLETE and CLOSED
+- No further modules may be added
+- Changes are limited to documentation only
 
----
-
-## 8. ANTI-HALLUCINATION CONTRACT
-
-- Do not invent interfaces
-- Do not assume data
-- Do not redefine completed work
-- Stop if information is missing
-
----
+Execution systems must live elsewhere.
 
 END OF GOVERNANCE
