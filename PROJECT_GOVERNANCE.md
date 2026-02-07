@@ -1,22 +1,21 @@
-# PROJECT_GOVERNANCE.md
-Delta Trading Bot — Institutional Market Intelligence System
+# Delta Trading Bot — Institutional Market Intelligence System
 
 Status: AUTHORITATIVE  
-Purpose: Continuity, Governance, Anti-Hallucination  
-Last Synced With Reality: 2026-02-06
+Last Updated: 2026-02-07  
+Current Locked Phase: V3.x — Associate Analyst (Offline Intelligence)
 
 ---
 
-## 0. GOVERNANCE STATEMENT (READ FIRST)
+## 0. GOVERNANCE STATEMENT (NON-NEGOTIABLE)
 
-This document is the single source of truth for the Delta Trading Bot project.
+This document is the single source of truth for this project.
 
-Any future action, suggestion, code, or discussion that:
-- contradicts this document,
-- redefines completed work,
-- introduces execution authority prematurely,
-- invents new system roles,
-- or bypasses defined phases
+Any action that:
+- Introduces execution authority
+- Loosens risk controls
+- Modifies completed phases
+- Hallucinates capabilities
+- Skips phases
 
 is invalid and must be rejected.
 
@@ -25,147 +24,107 @@ is invalid and must be rejected.
 ## 1. SYSTEM IDENTITY (LOCKED)
 
 System Type:  
-Institutional-grade market intelligence and research system for crypto derivatives.
+Institutional-grade market intelligence and research system.
 
 Explicitly NOT:
 - Retail trading bot
-- Signal follower
-- Autonomous trader
-- Self-arming AI system
+- Signal generator
+- Autonomous execution system
+- Self-arming AI trader
 
 Core Philosophy:
-- Capital preservation > opportunity
-- Abstention > false certainty
-- Evidence > intuition
-- Intelligence separated from authority
-- Auditability over performance
+- Capital preservation above all
+- Abstention over false certainty
+- Evidence before action
+- Intelligence strictly separated from execution
+- Full auditability
 
 ---
 
 ## 2. HARD INVARIANTS (NEVER CHANGE)
 
-1. Execution authority is permanently separated  
-2. All logic validated offline before any live consideration  
-3. Analyst seniority model is enforced  
-4. Live system is read-only  
-5. All behavior must be auditable and reproducible  
+1. Execution is permanently gated  
+2. Live system is read-only  
+3. All logic validated offline first  
+4. Analyst seniority model enforced  
+5. No revenge trading by construction  
 
 ---
 
 ## 3. CURRENT SYSTEM REALITY (FROZEN)
 
-- Live VPS ingestion (Delta Exchange)
+- Live VPS observer running
+- Multi-symbol observation enabled
 - Append-only JSONL logs
 - Strategy votes recorded (including abstentions)
 - No execution code exists
 - Safe to run unattended
 
-Execution status: PERMANENTLY GATED
+Execution Status: PERMANENTLY DISABLED
 
 ---
 
-## 4. ANALYST ROLE MODEL (AUTHORITATIVE)
+## 4. ANALYST ROLE MODEL
 
 ### V2.x — Junior Analyst (COMPLETED)
-
-Capabilities:
 - Market observation
 - Feature computation
 - Conservative voting
 - Aggressive abstention
 - Full persistence
 
-Limitations:
-- No regime detection
-- No hypothesis testing
-- No execution awareness
-- No capital logic
+### V3.x — Associate Analyst (COMPLETED)
+- Abstention discipline measurement
+- Persistence & confluence analysis
+- Rarity quantification
+- Offline-only intelligence validation
 
----
-
-### V3.x — Associate Analyst (NEXT)
-
-Capabilities:
-- Regime classification
-- Conditional statistics
-- Context building
-- Pattern rarity analysis
-
-Constraints:
-- No execution
-- No sizing
-- No capital exposure
-
----
-
-### V4.x — Senior Analyst (FUTURE)
-
-Capabilities:
-- Hypothesis validation
-- Scenario stress analysis
+### V4.x — Senior Analyst (DESIGN ONLY)
+- Hypothesis generation
+- Scenario analysis
 - Confidence calibration
-- Offline backtest orchestration
+- Research orchestration
 
-Still no execution authority.
-
----
-
-## 5. EXECUTION GATE (COMPLETED & LOCKED)
-
-- Deterministic
-- Stress-tested
-- Repo-aligned
-- Offline only
-- No false ALLOW at baseline
-
-This gate is a decision firewall, not a strategy.
+No execution authority.
 
 ---
 
-## 6. COMPLETED PHASES (IMMUTABLE)
+## 5. COMPLETED PHASES (IMMUTABLE)
 
 - V2.3 Offline Intelligence
-- V2.4 Gate Design & Stress Testing
-
-These phases are closed and must not be reworked.
-
----
-
-## 7. CURRENT POSITION
-
-The system is a validated Junior Analyst with a proven execution firewall.
-It observes, reasons conservatively, and refuses to act.
+- V2.4 Execution Gate (Locked)
+- V3.x Abstention Analysis
+- V3.x Persistence Analysis
+- V3.x Rarity Analysis
 
 ---
 
-## 8. FUTURE ROADMAP (NO SKIPPING)
+## 6. CURRENT VERIFIED STATE
 
-V3.0 — Associate Analyst  
-V3.5 — Full-stack offline backtesting  
-V4.x — Senior Analyst research layer  
-V5.x — Execution system (separate project, manual authorization only)
+- Abstention Rate: 100%
+- Persistence: Zero impulsive streaks
+- Rarity: Infinite (no false eligibility)
+- Capital Protection: Verified
+
+The system behaves as an institutional risk engine.
 
 ---
 
-## 9. ANTI-HALLUCINATION CONTRACT
+## 7. FUTURE ROADMAP (NO SKIPPING)
+
+- V4_DESIGN: Senior Analyst specifications only
+- V4_IMPLEMENT: Offline research tooling
+- V5_EXECUTION: Separate project, manual authorization only
+
+---
+
+## 8. ANTI-HALLUCINATION CONTRACT
 
 - Do not invent interfaces
-- Do not assume data structures
+- Do not assume data
 - Do not redefine completed work
-- Do not introduce execution
-- Do not optimize without evidence
-- Stop and ask if information is missing
+- Stop if information is missing
 
 ---
 
-## 10. DECISION PROTOCOL
-
-Progress requires:
-- Explicit phase declaration
-- Clear entry/exit criteria
-- One objective per phase
-- No retroactive changes
-
----
-
-END OF GOVERNANCE DOCUMENT
+END OF GOVERNANCE

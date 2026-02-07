@@ -1,34 +1,17 @@
-observer.out
-
-# Runtime market memory
-data/events/*.jsonl
-
-# Backtest temporary files
-data/events/_*.jsonl
-# secrets
+# Secrets
 .env
+*.env
 
-# python
-__pycache__/
-
-# logs
-logs/
-*.log
+# Live data & logs
+data/events/
+*.jsonl
 bot.log
 
-# runtime data (ignore everything)
-data/*
+# Reports & analysis outputs
+tools/reports/
+tools/reports/**
 
-# allow schema documentation
-!data/**/
-!data/**/schema.md
-.env
+# Python cache
 __pycache__/
-bot.log
-*.log
-
-# Gate stress test outputs
-tools/reports/gate_stress_*.json
-
-# Offline backtest artifacts (never commit)
-tools/reports/offline_backtest/
+*.pyc
+*.pyo
