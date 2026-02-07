@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from statistics import stdev
 import math
 
-from data.memory import (
+from Delta_Trading_Bot.data.memory import (
     get_latest_funding,
     get_recent_prices,
-    get_latest_book
+    get_latest_book,
 )
 
 # -------------------------
@@ -35,12 +35,10 @@ def build_feature_vector(symbol: str):
     funding = get_latest_funding(symbol)
 
     if funding:
-        # Absolute funding rate
         fr = funding.get("funding_rate")
         if isinstance(fr, (int, float)):
             features["funding_rate_abs"] = abs(fr)
 
-        # Time to next funding
         nft = funding.get("next_funding_time_utc")
         if nft:
             try:
@@ -78,7 +76,7 @@ def build_feature_vector(symbol: str):
                 features["bid_ask_spread_pct"] = (ask - bid) / mid
 
     # =====================================================
-    # FEATURE READINESS STATES (STEP 2)
+    # FEATURE READINESS STATES
     # =====================================================
     feature_states = {}
 

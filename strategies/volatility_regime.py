@@ -1,8 +1,9 @@
 # strategies/volatility_regime.py
 
 from statistics import median
-from strategies.base import Strategy
-from data.memory import get_recent_feature_values
+from Delta_Trading_Bot.strategies.base import Strategy
+from Delta_Trading_Bot.data.memory import get_recent_feature_values
+
 
 
 class VolatilityRegimeStrategy(Strategy):

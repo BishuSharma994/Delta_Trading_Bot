@@ -3,7 +3,8 @@
 # Execution GATED
 
 from datetime import datetime, timezone
-from data.memory import get_latest_strategy_vote
+from Delta_Trading_Bot.data.memory import get_latest_strategy_vote
+
 
 # Required features for base evaluation
 REQUIRED_FEATURES = [

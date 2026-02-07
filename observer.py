@@ -1,6 +1,6 @@
 # =========================
-# OBSERVER — INSTITUTIONAL V2.2+
-# Multi-Market Data + Intelligence Bridge (Execution GATED)
+# OBSERVER — INSTITUTIONAL V2.2
+# Data + Intelligence Bridge (Execution GATED)
 # =========================
 
 import os
@@ -26,38 +26,34 @@ os.chdir(BASE_DIR)
 load_dotenv(dotenv_path=BASE_DIR / ".env")
 
 # -------------------------
-# INTERNAL IMPORTS
+# INTERNAL IMPORTS (PACKAGE-ABSOLUTE)
 # -------------------------
-from core.feature_pipeline import build_feature_vector
-from core.evaluator import evaluate
-from utils.io import write_event
+from Delta_Trading_Bot.core.feature_pipeline import build_feature_vector
+from Delta_Trading_Bot.core.evaluator import evaluate
+from Delta_Trading_Bot.utils.io import write_event
 
-from strategies.funding_bias import FundingBiasStrategy
-from strategies.volatility_regime import VolatilityRegimeStrategy
+from Delta_Trading_Bot.strategies.funding_bias import FundingBiasStrategy
+from Delta_Trading_Bot.strategies.volatility_regime import VolatilityRegimeStrategy
 
 # =========================
 # CONFIG
 # =========================
 BASE_URL = "https://api.india.delta.exchange"
+SYMBOLS = {
+    "BTCUSD": 84,
+    "ETHUSD": 169,
+    "BNBUSD": 321,
+    "SOLUSD": 450,
+}
+
 LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
-KILL_SWITCH = False
 
 API_KEY = os.getenv("DELTA_API_KEY")
 API_SECRET = os.getenv("DELTA_API_SECRET")
 
 if not API_KEY or not API_SECRET:
     raise RuntimeError("API keys not loaded")
-
-# -------------------------
-# OBSERVED MARKETS (DATA ONLY)
-# -------------------------
-OBSERVED_MARKETS = [
-    {"symbol": "BTCUSD", "product_id": 84},
-    {"symbol": "ETHUSD", "product_id": 313},
-    {"symbol": "BNBUSD", "product_id": 553},
-    {"symbol": "SOLUSD", "product_id": 761},
-]
 
 # =========================
 # LOGGING
@@ -97,7 +93,7 @@ def signed_get(path):
 
 
 # =========================
-# MARKET DATA (PARAMETRIC)
+# MARKET DATA
 # =========================
 def get_mark_price(symbol):
     r = requests.get(
@@ -124,7 +120,7 @@ def get_funding_rate(product_id):
 # MAIN LOOP
 # =========================
 def main():
-    logging.info("MULTI-MARKET OBSERVER STARTED")
+    logging.info("OBSERVER STARTED")
 
     funding_strategy = FundingBiasStrategy()
     volatility_strategy = VolatilityRegimeStrategy()
@@ -133,10 +129,7 @@ def main():
         try:
             now_utc = datetime.now(timezone.utc).isoformat()
 
-            for market in OBSERVED_MARKETS:
-                symbol = market["symbol"]
-                product_id = market["product_id"]
-
+            for symbol, product_id in SYMBOLS.items():
                 price = get_mark_price(symbol)
                 funding = get_funding_rate(product_id)
 

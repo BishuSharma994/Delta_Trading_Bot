@@ -1,7 +1,8 @@
 # strategies/funding_bias.py
 # Vote-only funding bias strategy (V2.1)
 
-from strategies.base import Strategy
+from Delta_Trading_Bot.strategies.base import Strategy
+
 
 
 class FundingBiasStrategy(Strategy):
