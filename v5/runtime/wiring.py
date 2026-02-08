@@ -38,5 +38,9 @@ def main():
     log_gate("runtime_ready", {"status": "ready_no_execution"})
     print("V5 RUNTIME READY (DRY, NO EXECUTION)")
 
+        # DRY-RUN INTENT PLACEHOLDER
+    # emit_intent(...) is intentionally unreachable until armed
+
+
 if __name__ == "__main__":
     main()
