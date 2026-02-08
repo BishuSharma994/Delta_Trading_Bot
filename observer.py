@@ -1,19 +1,13 @@
-import sys
-from pathlib import Path
-
-# ensure parent directory is on PYTHONPATH
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT.parent))
 # =========================
-# OBSERVER — INSTITUTIONAL V2.3 (FINAL)
+# OBSERVER — INSTITUTIONAL V2.4 (FINAL FIX)
 # Data + Intelligence Bridge (Execution GATED)
 # =========================
 
+import sys
 import os
 import time
 import hmac
 import hashlib
-import json
 import requests
 import logging
 from datetime import datetime, timezone
@@ -21,20 +15,22 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # -------------------------
-# HARD PIN WORKING DIRECTORY
+# ENSURE PROJECT ROOT ON PATH
 # -------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent
-os.chdir(BASE_DIR)
-
-# -------------------------
-# LOAD ENV (ABSOLUTE PATH)
-# -------------------------
-# LOAD ENV (PROJECT ROOT)
 PROJECT_ROOT = Path(__file__).resolve().parent
-load_dotenv(PROJECT_ROOT / ".env")
-assert os.getenv("DELTA_API_KEY"), "DELTA_API_KEY missing"
-assert os.getenv("DELTA_API_SECRET"), "DELTA_API_SECRET missing"
+sys.path.insert(0, str(PROJECT_ROOT.parent))
+os.chdir(PROJECT_ROOT)
 
+# -------------------------
+# LOAD ENV
+# -------------------------
+load_dotenv(PROJECT_ROOT / ".env")
+
+API_KEY = os.getenv("DELTA_API_KEY")
+API_SECRET = os.getenv("DELTA_API_SECRET")
+
+if not API_KEY or not API_SECRET:
+    raise RuntimeError("API keys not loaded")
 
 # -------------------------
 # INTERNAL IMPORTS
@@ -45,13 +41,11 @@ from utils.io import write_event
 from strategies.funding_bias import FundingBiasStrategy
 from strategies.volatility_regime import VolatilityRegimeStrategy
 
-
 # =========================
 # CONFIG
 # =========================
 BASE_URL = "https://api.india.delta.exchange"
 
-# ⚠️ EXECUTION UNIVERSE = PERPETUAL FUTURES ONLY
 SYMBOLS = {
     "BTCUSD": 84,
     "ETHUSD": 169,
@@ -62,20 +56,15 @@ SYMBOLS = {
 LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
 
-API_KEY = os.getenv("DELTA_API_KEY")
-API_SECRET = os.getenv("DELTA_API_SECRET")
-
-if not API_KEY or not API_SECRET:
-    raise RuntimeError("API keys not loaded")
-
 # =========================
 # LOGGING
 # =========================
 logging.basicConfig(
-    filename="observer.log",
+    filename="bot.log",
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
+logging.info("OBSERVER BOOTSTRAP OK")
 
 # =========================
 # AUTH HELPERS
@@ -97,25 +86,9 @@ def _sign(method, path, body=""):
         "Content-Type": "application/json",
     }
 
-
-def signed_get(path):
-    headers = _sign("GET", path)
-    r = requests.get(BASE_URL + path, headers=headers, timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["result"]
-
 # =========================
 # MARKET DATA
 # =========================
-def get_product_info(product_id):
-    r = requests.get(
-        BASE_URL + f"/v2/products/{product_id}",
-        timeout=HTTP_TIMEOUT,
-    )
-    r.raise_for_status()
-    return r.json()["result"]
-
-
 def get_mark_price(symbol):
     r = requests.get(
         BASE_URL + f"/v2/tickers/{symbol}",
@@ -124,9 +97,16 @@ def get_mark_price(symbol):
     r.raise_for_status()
     return float(r.json()["result"]["mark_price"])
 
+def get_product_info(product_id):
+    r = requests.get(
+        BASE_URL + f"/v2/products/{product_id}",
+        timeout=HTTP_TIMEOUT,
+    )
+    r.raise_for_status()
+    return r.json()["result"]
 
 # =========================
-# MAIN LOOP
+# MAIN LOOP (STALL SAFE)
 # =========================
 def main():
     logging.info("OBSERVER STARTED")
@@ -135,15 +115,15 @@ def main():
     volatility_strategy = VolatilityRegimeStrategy()
 
     while True:
-        try:
-            now = datetime.now(timezone.utc)
+        loop_start = datetime.now(timezone.utc)
 
-            for symbol, product_id in SYMBOLS.items():
-                # -------- PRICE --------
+        for symbol, product_id in SYMBOLS.items():
+            try:
+                # -------- PRICE SNAPSHOT --------
                 mark_price = get_mark_price(symbol)
 
                 write_event("price_snapshot.jsonl", {
-                    "timestamp_utc": now.isoformat(),
+                    "timestamp_utc": loop_start.isoformat(),
                     "symbol": symbol,
                     "product_id": product_id,
                     "mark_price": mark_price,
@@ -164,13 +144,13 @@ def main():
                     )
 
                     write_event("funding_snapshot.jsonl", {
-                        "timestamp_utc": now.isoformat(),
+                        "timestamp_utc": loop_start.isoformat(),
                         "symbol": symbol,
                         "product_id": product_id,
                         "funding_rate": float(funding_rate),
                         "next_funding_time_utc": next_funding_time.isoformat(),
                         "time_to_funding_sec": int(
-                            (next_funding_time - now).total_seconds()
+                            (next_funding_time - loop_start).total_seconds()
                         ),
                         "mark_price": product.get("mark_price"),
                         "index_price": product.get("index_price"),
@@ -184,14 +164,14 @@ def main():
                 volatility_vote = volatility_strategy.vote(features)
 
                 write_event("strategy_votes.jsonl", {
-                    "timestamp_utc": now.isoformat(),
+                    "timestamp_utc": loop_start.isoformat(),
                     "symbol": symbol,
                     "strategy": funding_strategy.name,
                     "vote": funding_vote,
                 })
 
                 write_event("strategy_votes.jsonl", {
-                    "timestamp_utc": now.isoformat(),
+                    "timestamp_utc": loop_start.isoformat(),
                     "symbol": symbol,
                     "strategy": volatility_strategy.name,
                     "vote": volatility_vote,
@@ -201,28 +181,25 @@ def main():
                 decision = evaluate(features)
 
                 write_event("decision.jsonl", {
-                    "timestamp_utc": now.isoformat(),
+                    "timestamp_utc": loop_start.isoformat(),
                     "symbol": symbol,
                     "decision": decision,
                     "feature_states": features.get("_feature_states", {}),
                 })
 
                 logging.info(
-                    "STATE | %s | %s",
+                    "DECISION | %s | %s",
                     symbol,
                     decision.get("state"),
                 )
 
-            time.sleep(LOOP_INTERVAL_SECONDS)
+            except Exception as e:
+                # 🔒 CRITICAL FIX: NEVER ALLOW ONE SYMBOL TO STALL LOOP
+                logging.exception("SYMBOL ERROR | %s", symbol)
+                continue
 
-        except KeyboardInterrupt:
-            logging.info("MANUAL STOP")
-            break
-
-        except Exception as e:
-            logging.exception("UNHANDLED ERROR")
-            time.sleep(LOOP_INTERVAL_SECONDS)
-
+        logging.info("HEARTBEAT | loop_complete")
+        time.sleep(LOOP_INTERVAL_SECONDS)
 
 # =========================
 # ENTRY POINT
