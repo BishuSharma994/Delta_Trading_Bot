@@ -1,28 +1,18 @@
 """
 V5 Runtime Wiring
 NO EXECUTION
-NO ORDERS
-Spec-enforced skeleton only
+Evidence validation only
 """
 
-from pathlib import Path
-
-SPEC_DIR = Path("v5/spec")
-CONFIG_DIR = Path("config/v5")
-
-def load_specs():
-    assert SPEC_DIR.exists(), "SPEC_DIR missing"
-
-def load_configs():
-    assert CONFIG_DIR.exists(), "CONFIG_DIR missing"
-
-def preflight_checks():
-    load_specs()
-    load_configs()
+from .evidence_validator import validate_evidence
 
 def main():
-    preflight_checks()
-    # Intentionally no execution
+    ok, reason = validate_evidence()
+    if not ok:
+        print(f"EVIDENCE DENY: {reason}")
+    else:
+        print("EVIDENCE OK")
 
 if __name__ == "__main__":
     main()
+
