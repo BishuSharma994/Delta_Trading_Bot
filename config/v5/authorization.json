@@ -1,10 +1,11 @@
 {
-  "authorized_by": "",
-  "date_utc": "",
-  "scope": "",
+  "authorized_by": "Bishu Sharma",
+  "date_utc": "2026-02-09",
+  "scope": "DRY_RUN_ONLY",
   "revocation": {
     "revoked": false,
     "revoked_at_utc": "",
     "reason": ""
   }
 }
+
