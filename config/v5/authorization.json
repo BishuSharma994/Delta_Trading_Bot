@@ -1,0 +1,10 @@
+{
+  "authorized_by": "",
+  "date_utc": "",
+  "scope": "",
+  "revocation": {
+    "revoked": false,
+    "revoked_at_utc": "",
+    "reason": ""
+  }
+}

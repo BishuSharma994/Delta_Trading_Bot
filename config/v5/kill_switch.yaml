@@ -1,0 +1,5 @@
+manual: false
+loss_based: false
+time_based: false
+data_integrity: false
+volatility: false
