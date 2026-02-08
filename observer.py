@@ -1,5 +1,11 @@
+import sys
+from pathlib import Path
+
+# ensure parent directory is on PYTHONPATH
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT.parent))
 # =========================
-# OBSERVER — INSTITUTIONAL V2.2
+# OBSERVER — INSTITUTIONAL V2.3 (FINAL)
 # Data + Intelligence Bridge (Execution GATED)
 # =========================
 
@@ -17,28 +23,35 @@ from dotenv import load_dotenv
 # -------------------------
 # HARD PIN WORKING DIRECTORY
 # -------------------------
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 os.chdir(BASE_DIR)
 
 # -------------------------
 # LOAD ENV (ABSOLUTE PATH)
 # -------------------------
-load_dotenv(dotenv_path=BASE_DIR / ".env")
+# LOAD ENV (PROJECT ROOT)
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env")
+assert os.getenv("DELTA_API_KEY"), "DELTA_API_KEY missing"
+assert os.getenv("DELTA_API_SECRET"), "DELTA_API_SECRET missing"
+
 
 # -------------------------
-# INTERNAL IMPORTS (PACKAGE-ABSOLUTE)
+# INTERNAL IMPORTS
 # -------------------------
-from Delta_Trading_Bot.core.feature_pipeline import build_feature_vector
-from Delta_Trading_Bot.core.evaluator import evaluate
-from Delta_Trading_Bot.utils.io import write_event
+from core.feature_pipeline import build_feature_vector
+from core.evaluator import evaluate
+from utils.io import write_event
+from strategies.funding_bias import FundingBiasStrategy
+from strategies.volatility_regime import VolatilityRegimeStrategy
 
-from Delta_Trading_Bot.strategies.funding_bias import FundingBiasStrategy
-from Delta_Trading_Bot.strategies.volatility_regime import VolatilityRegimeStrategy
 
 # =========================
 # CONFIG
 # =========================
 BASE_URL = "https://api.india.delta.exchange"
+
+# ⚠️ EXECUTION UNIVERSE = PERPETUAL FUTURES ONLY
 SYMBOLS = {
     "BTCUSD": 84,
     "ETHUSD": 169,
@@ -59,7 +72,7 @@ if not API_KEY or not API_SECRET:
 # LOGGING
 # =========================
 logging.basicConfig(
-    filename="bot.log",
+    filename="observer.log",
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
@@ -80,7 +93,7 @@ def _sign(method, path, body=""):
         "api-key": API_KEY,
         "timestamp": ts,
         "signature": sig,
-        "User-Agent": "python-bot",
+        "User-Agent": "delta-bot",
         "Content-Type": "application/json",
     }
 
@@ -91,10 +104,18 @@ def signed_get(path):
     r.raise_for_status()
     return r.json()["result"]
 
-
 # =========================
 # MARKET DATA
 # =========================
+def get_product_info(product_id):
+    r = requests.get(
+        BASE_URL + f"/v2/products/{product_id}",
+        timeout=HTTP_TIMEOUT,
+    )
+    r.raise_for_status()
+    return r.json()["result"]
+
+
 def get_mark_price(symbol):
     r = requests.get(
         BASE_URL + f"/v2/tickers/{symbol}",
@@ -102,18 +123,6 @@ def get_mark_price(symbol):
     )
     r.raise_for_status()
     return float(r.json()["result"]["mark_price"])
-
-
-def get_funding_rate(product_id):
-    try:
-        r = requests.get(
-            BASE_URL + f"/v2/products/{product_id}",
-            timeout=HTTP_TIMEOUT,
-        )
-        r.raise_for_status()
-        return r.json()["result"].get("funding_rate")
-    except Exception:
-        return None
 
 
 # =========================
@@ -127,34 +136,44 @@ def main():
 
     while True:
         try:
-            now_utc = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(timezone.utc)
 
             for symbol, product_id in SYMBOLS.items():
-                price = get_mark_price(symbol)
-                funding = get_funding_rate(product_id)
+                # -------- PRICE --------
+                mark_price = get_mark_price(symbol)
 
-                # -------- EVENT INGESTION --------
                 write_event("price_snapshot.jsonl", {
-                    "timestamp_utc": now_utc,
+                    "timestamp_utc": now.isoformat(),
                     "symbol": symbol,
                     "product_id": product_id,
-                    "mark_price": price,
-                    "index_price": price,
-                    "best_bid": price * 0.999,
-                    "best_ask": price * 1.001,
+                    "mark_price": mark_price,
+                    "index_price": mark_price,
+                    "best_bid": mark_price * 0.999,
+                    "best_ask": mark_price * 1.001,
                 })
 
-                if funding is not None:
+                # -------- FUNDING (PERP ONLY) --------
+                product = get_product_info(product_id)
+
+                funding_rate = product.get("funding_rate")
+                next_funding_ts = product.get("next_funding_time")
+
+                if funding_rate is not None and next_funding_ts is not None:
+                    next_funding_time = datetime.fromtimestamp(
+                        next_funding_ts, tz=timezone.utc
+                    )
+
                     write_event("funding_snapshot.jsonl", {
-                        "timestamp_utc": now_utc,
+                        "timestamp_utc": now.isoformat(),
                         "symbol": symbol,
                         "product_id": product_id,
-                        "funding_rate": funding,
-                        "next_funding_time_utc": (
-                            datetime.now(timezone.utc)
-                            .replace(minute=0, second=0, microsecond=0)
-                            .isoformat()
+                        "funding_rate": float(funding_rate),
+                        "next_funding_time_utc": next_funding_time.isoformat(),
+                        "time_to_funding_sec": int(
+                            (next_funding_time - now).total_seconds()
                         ),
+                        "mark_price": product.get("mark_price"),
+                        "index_price": product.get("index_price"),
                     })
 
                 # -------- FEATURES --------
@@ -165,14 +184,14 @@ def main():
                 volatility_vote = volatility_strategy.vote(features)
 
                 write_event("strategy_votes.jsonl", {
-                    "timestamp_utc": now_utc,
+                    "timestamp_utc": now.isoformat(),
                     "symbol": symbol,
                     "strategy": funding_strategy.name,
                     "vote": funding_vote,
                 })
 
                 write_event("strategy_votes.jsonl", {
-                    "timestamp_utc": now_utc,
+                    "timestamp_utc": now.isoformat(),
                     "symbol": symbol,
                     "strategy": volatility_strategy.name,
                     "vote": volatility_vote,
@@ -181,14 +200,18 @@ def main():
                 # -------- EVALUATION --------
                 decision = evaluate(features)
 
-                logging.info("DECISION | %s | %s", symbol, decision.get("state"))
-
                 write_event("decision.jsonl", {
-                    "timestamp_utc": now_utc,
+                    "timestamp_utc": now.isoformat(),
                     "symbol": symbol,
                     "decision": decision,
                     "feature_states": features.get("_feature_states", {}),
                 })
+
+                logging.info(
+                    "STATE | %s | %s",
+                    symbol,
+                    decision.get("state"),
+                )
 
             time.sleep(LOOP_INTERVAL_SECONDS)
 
@@ -197,9 +220,12 @@ def main():
             break
 
         except Exception as e:
-            logging.exception("Unhandled exception: %s", str(e))
+            logging.exception("UNHANDLED ERROR")
             time.sleep(LOOP_INTERVAL_SECONDS)
 
 
+# =========================
+# ENTRY POINT
+# =========================
 if __name__ == "__main__":
     main()
