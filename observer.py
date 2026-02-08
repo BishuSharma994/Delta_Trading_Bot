@@ -47,11 +47,12 @@ from strategies.volatility_regime import VolatilityRegimeStrategy
 BASE_URL = "https://api.india.delta.exchange"
 
 SYMBOLS = {
-    "BTCUSD": 84,
-    "ETHUSD": 169,
-    "BNBUSD": 321,
-    "SOLUSD": 450,
+    "BTCUSD": 27,
+    "ETHUSD": 3136,
+    "SOLUSD": 14823,
+    "BNBUSD": 15042,
 }
+
 
 LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
