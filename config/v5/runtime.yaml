@@ -1,3 +1,4 @@
-armed: false
+armed: true
 dry_run: true
 allowed_symbols: []
+
