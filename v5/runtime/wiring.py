@@ -1,10 +1,11 @@
 """
 V5 Runtime Wiring
 NO EXECUTION
-Evidence + Governance + Kill-Switch + Audit
+Evidence + Authorization + Governance + Kill-Switch + Audit
 """
 
 from v5.runtime.evidence_validator import validate_evidence
+from v5.runtime.authorization import authorization_valid
 from v5.runtime.governance import is_armed
 from v5.runtime.kill_switch import kill_switch_triggered
 from v5.runtime.audit import log_gate
@@ -14,6 +15,12 @@ def main():
     log_gate("evidence_check", {"ok": ok, "reason": reason})
     if not ok:
         print(f"EVIDENCE DENY: {reason}")
+        return
+
+    auth_ok, auth_reason = authorization_valid()
+    log_gate("authorization_check", {"ok": auth_ok, "reason": auth_reason})
+    if not auth_ok:
+        print(f"AUTHORIZATION DENY: {auth_reason}")
         return
 
     armed, state = is_armed()
