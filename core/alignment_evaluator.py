@@ -15,7 +15,7 @@ FUNDING_SNAPSHOTS = DATA_DIR / "funding_snapshot.jsonl"
 ALIGNMENT_OUT = DATA_DIR / "alignment_state.jsonl"
 
 CONFIDENCE_THRESHOLD = 0.30
-MAX_FUNDING_WINDOW_SEC = 3600  # 1 hour pre/post funding
+MAX_FUNDING_WINDOW_SEC = 3600  # 1 hour window
 
 
 def load_latest_by_symbol(path):
@@ -37,6 +37,7 @@ def main():
     funding_data = load_latest_by_symbol(FUNDING_SNAPSHOTS)
 
     for symbol, vote in strategy_votes.items():
+
         alignment = {
             "timestamp_utc": now.isoformat(),
             "symbol": symbol,
@@ -47,6 +48,16 @@ def main():
             "funding_vote": None,
             "time_to_funding_sec": None,
             "reason": "default_abstain",
+
+            # -------- EVIDENCE (LOCKED V4 ARTIFACTS) --------
+            # These MUST come from V4.
+            # If missing, validator will DENY (correct behavior).
+            "evidence": {
+                "hypothesis_id": vote.get("hypothesis_id"),
+                "rarity_index": vote.get("rarity_index"),
+                "scenario_concurrence": vote.get("scenario_concurrence"),
+                "confidence_calibration": vote.get("confidence_calibration"),
+            },
         }
 
         vol_vote = vote.get("vote")
@@ -74,11 +85,10 @@ def main():
             write_alignment(alignment)
             continue
 
-        confidence = CONFIDENCE_THRESHOLD
         alignment.update({
             "alignment_state": "ALIGNED",
             "direction": vol_vote,
-            "confidence": confidence,
+            "confidence": CONFIDENCE_THRESHOLD,
             "reason": "volatility_funding_aligned",
         })
 
