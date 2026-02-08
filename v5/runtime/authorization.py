@@ -22,8 +22,7 @@ def authorization_valid():
         if not auth.get(field):
             return False, f"missing_{field}"
 
-    revocation = auth.get("revocation", {})
-    if revocation.get("revoked") is True:
+    if auth.get("revocation", {}).get("revoked") is True:
         return False, "authorization_revoked"
 
     try:
