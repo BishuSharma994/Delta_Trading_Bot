@@ -1,0 +1,8 @@
+EB-001: Execute when explicitly armed.
+EB-002: Consume locked V4 artifacts only.
+EB-003: Use deterministic gates only.
+EB-004: Obey the risk governor.
+EB-005: Never generate strategies.
+EB-006: Never optimize parameters.
+EB-007: Never self-arm.
+EB-008: Never override kill switches.

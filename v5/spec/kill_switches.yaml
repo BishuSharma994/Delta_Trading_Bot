@@ -1,0 +1,6 @@
+KS-001: Manual human kill.
+KS-002: Loss-based kill.
+KS-003: Time-based kill.
+KS-004: Data-integrity kill.
+KS-005: Volatility kill.
+KS-006: Any trigger causes immediate DISARM.

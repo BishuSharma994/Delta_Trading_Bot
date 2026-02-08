@@ -1,0 +1,4 @@
+AUTH-001: Written human authorization required.
+AUTH-002: Dated approval required.
+AUTH-003: Scope definition required.
+AUTH-004: Explicit revocation clause required.

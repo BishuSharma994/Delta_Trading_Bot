@@ -1,0 +1,5 @@
+EC-001: Hypothesis IDs (locked) required.
+EC-002: Rarity indices required.
+EC-003: Scenario concurrence required.
+EC-004: Confidence calibration required.
+EC-005: Missing or stale input results in DENY.

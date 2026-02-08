@@ -1,0 +1,6 @@
+AL-001: Log evidence snapshots.
+AL-002: Log gate decisions.
+AL-003: Log risk checks.
+AL-004: Log order lifecycle.
+AL-005: Log human approvals.
+AL-006: Logs are append-only and immutable.
