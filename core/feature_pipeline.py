@@ -35,17 +35,24 @@ def build_feature_vector(symbol: str):
     funding = get_latest_funding(symbol)
 
     if funding:
+        # -------- funding_rate_abs --------
         fr = funding.get("funding_rate")
         if isinstance(fr, (int, float)):
             features["funding_rate_abs"] = abs(fr)
 
-        nft = funding.get("next_funding_time_utc")
-        if nft:
+        # -------- time_to_funding_sec (NEW PRIMARY PATH) --------
+        tts = funding.get("time_to_funding_sec")
+        if isinstance(tts, (int, float)) and tts >= 0:
+            features["time_to_funding_sec"] = float(tts)
+
+        # -------- Fallback: compute from next_funding_time_utc --------
+        elif funding.get("next_funding_time_utc"):
             try:
-                nft = nft.replace("Z", "+00:00")
+                nft = funding["next_funding_time_utc"].replace("Z", "+00:00")
                 next_time = datetime.fromisoformat(nft)
                 now = datetime.now(timezone.utc)
                 delta_sec = (next_time - now).total_seconds()
+
                 if delta_sec >= 0:
                     features["time_to_funding_sec"] = delta_sec
             except Exception:

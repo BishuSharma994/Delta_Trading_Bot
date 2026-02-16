@@ -1,13 +1,11 @@
 # =========================
-# OBSERVER — INSTITUTIONAL V2.4 (FINAL FIX)
-# Data + Intelligence Bridge (Execution GATED)
+# OBSERVER — INSTITUTIONAL V2.7
+# Perpetual Restricted + Correct Funding + time_to_funding_sec
 # =========================
 
 import sys
 import os
 import time
-import hmac
-import hashlib
 import requests
 import logging
 from datetime import datetime, timezone
@@ -45,17 +43,11 @@ from strategies.volatility_regime import VolatilityRegimeStrategy
 # CONFIG
 # =========================
 BASE_URL = "https://api.india.delta.exchange"
-
-SYMBOLS = {
-    "BTCUSD": 27,
-    "ETHUSD": 3136,
-    "SOLUSD": 14823,
-    "BNBUSD": 15042,
-}
-
-
 LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
+FUNDING_INTERVAL_SECONDS = 8 * 60 * 60  # 28800
+
+TARGET_SYMBOLS = {"BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD"}
 
 # =========================
 # LOGGING
@@ -65,49 +57,54 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
+
 logging.info("OBSERVER BOOTSTRAP OK")
 
 # =========================
-# AUTH HELPERS
+# PERPETUAL PRODUCT LOADER
 # =========================
-def _sign(method, path, body=""):
-    ts = str(int(time.time()))
-    payload = method + ts + path + body
-    sig = hmac.new(
-        API_SECRET.encode(),
-        payload.encode(),
-        hashlib.sha256,
-    ).hexdigest()
-
-    return {
-        "api-key": API_KEY,
-        "timestamp": ts,
-        "signature": sig,
-        "User-Agent": "delta-bot",
-        "Content-Type": "application/json",
-    }
-
-# =========================
-# MARKET DATA
-# =========================
-def get_mark_price(symbol):
+def load_perpetual_products():
     r = requests.get(
-        BASE_URL + f"/v2/tickers/{symbol}",
+        BASE_URL + "/v2/products",
         timeout=HTTP_TIMEOUT,
     )
     r.raise_for_status()
-    return float(r.json()["result"]["mark_price"])
 
-def get_product_info(product_id):
+    products = r.json()["result"]
+    perp_map = {}
+
+    for p in products:
+        if p.get("contract_type") == "perpetual_futures":
+            symbol = p.get("symbol")
+            if symbol in TARGET_SYMBOLS:
+                perp_map[symbol] = p.get("id")
+
+    if not perp_map:
+        raise RuntimeError("No perpetual futures found")
+
+    return perp_map
+
+# =========================
+# TICKER DATA
+# =========================
+def get_ticker(symbol):
     r = requests.get(
-        BASE_URL + f"/v2/products/{product_id}",
+        BASE_URL + f"/v2/tickers/{symbol}",
         timeout=HTTP_TIMEOUT,
     )
     r.raise_for_status()
     return r.json()["result"]
 
 # =========================
-# MAIN LOOP (STALL SAFE)
+# FUNDING TIMER
+# =========================
+def compute_time_to_funding(loop_start):
+    now_ts = int(loop_start.timestamp())
+    next_funding_ts = ((now_ts // FUNDING_INTERVAL_SECONDS) + 1) * FUNDING_INTERVAL_SECONDS
+    return next_funding_ts - now_ts
+
+# =========================
+# MAIN LOOP
 # =========================
 def main():
     logging.info("OBSERVER STARTED")
@@ -115,46 +112,43 @@ def main():
     funding_strategy = FundingBiasStrategy()
     volatility_strategy = VolatilityRegimeStrategy()
 
+    SYMBOLS = load_perpetual_products()
+    logging.info("PERPETUAL SYMBOL MAP LOADED: %s", SYMBOLS)
+
     while True:
         loop_start = datetime.now(timezone.utc)
 
         for symbol, product_id in SYMBOLS.items():
             try:
-                # -------- PRICE SNAPSHOT --------
-                mark_price = get_mark_price(symbol)
+                ticker = get_ticker(symbol)
 
+                mark_price = float(ticker.get("mark_price"))
+                funding_rate = ticker.get("funding_rate")
+                spot_price = ticker.get("spot_price")
+
+                # -------- PRICE SNAPSHOT --------
                 write_event("price_snapshot.jsonl", {
                     "timestamp_utc": loop_start.isoformat(),
                     "symbol": symbol,
                     "product_id": product_id,
                     "mark_price": mark_price,
-                    "index_price": mark_price,
-                    "best_bid": mark_price * 0.999,
-                    "best_ask": mark_price * 1.001,
+                    "index_price": float(spot_price) if spot_price else mark_price,
+                    "best_bid": float(ticker["quotes"]["best_bid"]),
+                    "best_ask": float(ticker["quotes"]["best_ask"]),
                 })
 
-                # -------- FUNDING (PERP ONLY) --------
-                product = get_product_info(product_id)
-
-                funding_rate = product.get("funding_rate")
-                next_funding_ts = product.get("next_funding_time")
-
-                if funding_rate is not None and next_funding_ts is not None:
-                    next_funding_time = datetime.fromtimestamp(
-                        next_funding_ts, tz=timezone.utc
-                    )
+                # -------- FUNDING SNAPSHOT --------
+                if funding_rate is not None:
+                    time_to_funding_sec = compute_time_to_funding(loop_start)
 
                     write_event("funding_snapshot.jsonl", {
                         "timestamp_utc": loop_start.isoformat(),
                         "symbol": symbol,
                         "product_id": product_id,
                         "funding_rate": float(funding_rate),
-                        "next_funding_time_utc": next_funding_time.isoformat(),
-                        "time_to_funding_sec": int(
-                            (next_funding_time - loop_start).total_seconds()
-                        ),
-                        "mark_price": product.get("mark_price"),
-                        "index_price": product.get("index_price"),
+                        "time_to_funding_sec": time_to_funding_sec,
+                        "mark_price": mark_price,
+                        "index_price": float(spot_price) if spot_price else mark_price,
                     })
 
                 # -------- FEATURES --------
@@ -194,8 +188,7 @@ def main():
                     decision.get("state"),
                 )
 
-            except Exception as e:
-                # 🔒 CRITICAL FIX: NEVER ALLOW ONE SYMBOL TO STALL LOOP
+            except Exception:
                 logging.exception("SYMBOL ERROR | %s", symbol)
                 continue
 

@@ -1,5 +1,5 @@
 # core/evaluator.py
-# Institutional Evaluator — V2.2
+# Institutional Evaluator — V2.3
 # Execution GATED
 
 from datetime import datetime, timezone
@@ -12,6 +12,17 @@ REQUIRED_FEATURES = [
     "time_to_funding_sec",
     "pre_volatility_5m",
 ]
+
+
+def _valid_vote(vote: dict) -> bool:
+    """
+    Defensive contract check.
+    Ensures vote is a dict and contains a valid 'state'.
+    """
+    return (
+        isinstance(vote, dict)
+        and isinstance(vote.get("state"), str)
+    )
 
 
 def evaluate(features: dict) -> dict:
@@ -39,11 +50,16 @@ def evaluate(features: dict) -> dict:
 
     supporting_votes = []
 
-    if funding_vote and funding_vote["state"] not in ("NEUTRAL", "NO_DATA"):
-        supporting_votes.append("funding_bias")
+    # -------- Funding Vote --------
+    if _valid_vote(funding_vote):
+        state = funding_vote["state"]
+        if state not in ("NEUTRAL", "NO_DATA"):
+            supporting_votes.append("funding_bias")
 
-    if vol_vote and vol_vote["state"] == "EXPANSION_DETECTED":
-        supporting_votes.append("volatility_regime")
+    # -------- Volatility Vote --------
+    if _valid_vote(vol_vote):
+        if vol_vote["state"] == "EXPANSION_DETECTED":
+            supporting_votes.append("volatility_regime")
 
     # -------------------------
     # EDGE DETECTION (NO EXECUTION)
