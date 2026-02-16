@@ -109,20 +109,20 @@ def get_latest_strategy_vote(strategy_name: str):
 # -------------------------
 def get_recent_feature_values(feature_name: str, limit: int = 60):
     """
-    Returns recent feature values from decision events.
-    Used by regime / pattern strategies.
+    Returns recent numeric feature values from decision events.
     """
     events = read_events("decision.jsonl")
 
     values = []
     for event in reversed(events):
-        feature_states = event.get("feature_states", {})
-        value = feature_states.get(feature_name)
+        feature_block = event.get("features", {})
+        value = feature_block.get(feature_name)
 
-        if value is not None:
-            values.append(value)
+        if isinstance(value, (int, float)):
+            values.append(float(value))
 
         if len(values) >= limit:
             break
 
     return list(reversed(values))
+

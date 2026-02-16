@@ -1,8 +1,7 @@
 # strategies/funding_bias.py
-# Vote-only funding bias strategy (V2.1)
+# Vote-only funding bias strategy (V2.2)
 
 from Delta_Trading_Bot.strategies.base import Strategy
-
 
 
 class FundingBiasStrategy(Strategy):
@@ -10,39 +9,53 @@ class FundingBiasStrategy(Strategy):
 
     def vote(self, features: dict) -> dict:
         """
-        Funding is contextual. This strategy emits a weak bias only
-        when funding magnitude AND timing are informative.
+        Funding emits directional context only when:
+        - magnitude meaningful
+        - timing relevant
         """
 
         fr = features.get("funding_rate_abs")
         ttf = features.get("time_to_funding_sec")
 
-        # Default: no opinion
-        vote = {
-            "bias": 0,            # -1 short, 0 neutral, +1 long
-            "confidence": 0.0,
-            "reason": "No actionable funding context",
-        }
-
-        # Funding unavailable or stale
+        # -------------------------------------------------
+        # HARD NO DATA
+        # -------------------------------------------------
         if not isinstance(fr, (int, float)) or not isinstance(ttf, (int, float)):
-            vote["reason"] = "Funding data incomplete"
-            return vote
+            return {
+                "state": "NO_DATA",
+                "bias": 0,
+                "confidence": 0.0,
+                "reason": "Funding data incomplete",
+            }
 
-        # Ignore weak funding
+        # -------------------------------------------------
+        # WEAK FUNDING
+        # -------------------------------------------------
         if fr < 0.0005:
-            vote["reason"] = "Funding magnitude too small"
-            return vote
+            return {
+                "state": "NEUTRAL",
+                "bias": 0,
+                "confidence": 0.0,
+                "reason": "Funding magnitude too small",
+            }
 
-        # Timing context: closer to funding = more relevant
-        if ttf > 3600:  # more than 1 hour away
-            vote["reason"] = "Funding too far in future"
-            return vote
+        # -------------------------------------------------
+        # TOO FAR FROM SETTLEMENT
+        # -------------------------------------------------
+        if ttf > 3600:
+            return {
+                "state": "NEUTRAL",
+                "bias": 0,
+                "confidence": 0.0,
+                "reason": "Funding too far in future",
+            }
 
-        # Directional bias (funding positive → short bias, negative → long bias)
-        # Note: evaluator will later decide how to use sign
-        vote["bias"] = -1  # short bias for positive funding
-        vote["confidence"] = min(fr * 20, 0.4)  # capped, weak by design
-        vote["reason"] = "High funding near settlement"
-
-        return vote
+        # -------------------------------------------------
+        # ACTIONABLE FUNDING
+        # -------------------------------------------------
+        return {
+            "state": "BIAS_DETECTED",
+            "bias": -1,  # positive funding → short bias
+            "confidence": min(fr * 20, 0.4),
+            "reason": "High funding near settlement",
+        }

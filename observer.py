@@ -176,11 +176,17 @@ def main():
                 decision = evaluate(features)
 
                 write_event("decision.jsonl", {
-                    "timestamp_utc": loop_start.isoformat(),
-                    "symbol": symbol,
-                    "decision": decision,
-                    "feature_states": features.get("_feature_states", {}),
-                })
+                     "timestamp_utc": loop_start.isoformat(),
+                     "symbol": symbol,
+                     "decision": decision,
+                     "features": {
+                         "funding_rate_abs": features.get("funding_rate_abs"),
+                         "time_to_funding_sec": features.get("time_to_funding_sec"),
+                         "pre_volatility_5m": features.get("pre_volatility_5m"),
+    },
+    "feature_states": features.get("_feature_states", {}),
+})
+
 
                 logging.info(
                     "DECISION | %s | %s",
