@@ -1,5 +1,6 @@
 # core/feature_pipeline.py
 # Pure feature derivation. No API calls. No side effects.
+# Institutional Stable Version
 
 from datetime import datetime, timezone
 from statistics import stdev
@@ -10,6 +11,7 @@ from Delta_Trading_Bot.data.memory import (
     get_recent_prices,
     get_latest_book,
 )
+
 
 # -------------------------
 # Helpers
@@ -35,17 +37,20 @@ def build_feature_vector(symbol: str):
     funding = get_latest_funding(symbol)
 
     if funding:
+
         # -------- funding_rate_abs --------
         fr = funding.get("funding_rate")
         if isinstance(fr, (int, float)):
-            features["funding_rate_abs"] = abs(fr)
+            features["funding_rate_abs"] = abs(float(fr))
 
-        # -------- time_to_funding_sec (NEW PRIMARY PATH) --------
-        tts = funding.get("time_to_funding_sec")
-        if isinstance(tts, (int, float)) and tts >= 0:
-            features["time_to_funding_sec"] = float(tts)
+        # -------- time_to_funding_sec (PRIMARY PATH) --------
+        ttf = funding.get("time_to_funding_sec")
+        if isinstance(ttf, (int, float)):
+            # Guard against negative timing drift
+            if ttf >= 0:
+                features["time_to_funding_sec"] = float(ttf)
 
-        # -------- Fallback: compute from next_funding_time_utc --------
+        # -------- Fallback: derive from next_funding_time_utc --------
         elif funding.get("next_funding_time_utc"):
             try:
                 nft = funding["next_funding_time_utc"].replace("Z", "+00:00")
@@ -54,7 +59,7 @@ def build_feature_vector(symbol: str):
                 delta_sec = (next_time - now).total_seconds()
 
                 if delta_sec >= 0:
-                    features["time_to_funding_sec"] = delta_sec
+                    features["time_to_funding_sec"] = float(delta_sec)
             except Exception:
                 pass
 
@@ -66,7 +71,10 @@ def build_feature_vector(symbol: str):
     if prices_5m and len(prices_5m) >= 2:
         returns = _log_returns(prices_5m)
         if returns and len(returns) >= 2:
-            features["pre_volatility_5m"] = stdev(returns)
+            try:
+                features["pre_volatility_5m"] = float(stdev(returns))
+            except Exception:
+                pass
 
     # =====================================================
     # BID / ASK SPREAD
@@ -80,18 +88,19 @@ def build_feature_vector(symbol: str):
         if isinstance(bid, (int, float)) and isinstance(ask, (int, float)):
             if bid > 0 and ask > bid:
                 mid = (bid + ask) / 2
-                features["bid_ask_spread_pct"] = (ask - bid) / mid
+                features["bid_ask_spread_pct"] = float((ask - bid) / mid)
 
     # =====================================================
     # FEATURE READINESS STATES
     # =====================================================
-    feature_states = {}
-
-    for name in [
+    required = [
         "funding_rate_abs",
         "time_to_funding_sec",
         "pre_volatility_5m",
-    ]:
+    ]
+
+    feature_states = {}
+    for name in required:
         feature_states[name] = "hot" if name in features else "cold"
 
     features["_feature_states"] = feature_states

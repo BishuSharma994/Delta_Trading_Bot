@@ -31,3 +31,4 @@ data/archive/
 test_*.json
 test_*.jsonl
 observer.out
+execution_state.json

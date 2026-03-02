@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
+
 # -------------------------
 # ENSURE PROJECT ROOT ON PATH
 # -------------------------
@@ -35,6 +36,7 @@ if not API_KEY or not API_SECRET:
 # -------------------------
 from core.feature_pipeline import build_feature_vector
 from core.evaluator import evaluate
+from core.state_engine import StateEngine
 from utils.io import write_event
 from strategies.funding_bias import FundingBiasStrategy
 from strategies.volatility_regime import VolatilityRegimeStrategy
@@ -108,13 +110,14 @@ def compute_time_to_funding(loop_start):
 # =========================
 def main():
     logging.info("OBSERVER STARTED")
-
+    
+    state_engine = StateEngine()
     funding_strategy = FundingBiasStrategy()
     volatility_strategy = VolatilityRegimeStrategy()
 
     SYMBOLS = load_perpetual_products()
     logging.info("PERPETUAL SYMBOL MAP LOADED: %s", SYMBOLS)
-
+    
     while True:
         loop_start = datetime.now(timezone.utc)
 
@@ -174,6 +177,8 @@ def main():
 
                 # -------- EVALUATION --------
                 decision = evaluate(features)
+
+                state_engine.process(symbol, decision, features)
 
                 write_event("decision.jsonl", {
                      "timestamp_utc": loop_start.isoformat(),
