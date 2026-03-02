@@ -1,6 +1,6 @@
 # core/state_engine.py
 # Deterministic Execution State Machine (DRY-RUN ONLY)
-# Funding Rollover Safe Version
+# Funding-Time Locked Version
 
 import json
 from datetime import datetime, timezone, timedelta
@@ -19,7 +19,8 @@ class SymbolState:
         self.entry_time = None
         self.cooldown_until = None
         self.last_decision_state = None
-        self.last_ttf = None  # track previous funding countdown
+        self.last_ttf = None
+        self.exit_funding_ts = None  # locked funding boundary
 
 
 class StateEngine:
@@ -42,6 +43,7 @@ class StateEngine:
                 s.cooldown_until = data.get("cooldown_until")
                 s.last_decision_state = data.get("last_decision_state")
                 s.last_ttf = data.get("last_ttf")
+                s.exit_funding_ts = data.get("exit_funding_ts")
                 self.symbols[symbol] = s
 
     def _save(self):
@@ -53,6 +55,7 @@ class StateEngine:
                 "cooldown_until": s.cooldown_until,
                 "last_decision_state": s.last_decision_state,
                 "last_ttf": s.last_ttf,
+                "exit_funding_ts": s.exit_funding_ts,
             }
 
         with open(STATE_FILE, "w") as f:
@@ -83,29 +86,30 @@ class StateEngine:
             ):
                 s.state = "IN_POSITION"
                 s.entry_time = now.isoformat()
+
+                # Lock funding timestamp
+                funding_ts = now + timedelta(seconds=float(current_ttf))
+                s.exit_funding_ts = funding_ts.isoformat()
+
                 print(f"[DRY_RUN_ENTRY] {symbol} at {now.isoformat()}")
 
         # -------------------------
         # IN_POSITION → COOLDOWN
-        # Detect funding rollover
+        # Deterministic time-based exit
         # -------------------------
         elif s.state == "IN_POSITION":
+            if s.exit_funding_ts:
+                funding_time = datetime.fromisoformat(s.exit_funding_ts)
 
-            # Fail-safe: if timing missing, exit
-            if current_ttf is None:
-                s.state = "COOLDOWN"
-                s.cooldown_until = (now + timedelta(seconds=COOLDOWN_SECONDS)).isoformat()
-                print(f"[DRY_RUN_EXIT - MISSING_TTF] {symbol} at {now.isoformat()}")
+                if now >= funding_time:
+                    s.state = "COOLDOWN"
+                    s.cooldown_until = (
+                        now + timedelta(seconds=COOLDOWN_SECONDS)
+                    ).isoformat()
 
-            else:
-                # Detect rollover: countdown resets upward
-                if s.last_ttf is not None:
-                    if current_ttf > s.last_ttf:
-                        s.state = "COOLDOWN"
-                        s.cooldown_until = (
-                            now + timedelta(seconds=COOLDOWN_SECONDS)
-                        ).isoformat()
-                        print(f"[DRY_RUN_EXIT - FUNDING_ROLLOVER] {symbol} at {now.isoformat()}")
+                    s.exit_funding_ts = None
+
+                    print(f"[DRY_RUN_EXIT - FUNDING_TIME] {symbol} at {now.isoformat()}")
 
         # -------------------------
         # COOLDOWN → FLAT
@@ -118,7 +122,6 @@ class StateEngine:
                     s.cooldown_until = None
                     print(f"[COOLDOWN_COMPLETE] {symbol} at {now.isoformat()}")
 
-        # Track for next loop
         s.last_decision_state = current_decision_state
         s.last_ttf = current_ttf
 

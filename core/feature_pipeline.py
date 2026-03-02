@@ -1,6 +1,6 @@
 # core/feature_pipeline.py
 # Pure feature derivation. No API calls. No side effects.
-# Institutional Stable Version
+# Institutional Stable Version (Rollover Hardened)
 
 from datetime import datetime, timezone
 from statistics import stdev
@@ -38,30 +38,37 @@ def build_feature_vector(symbol: str):
 
     if funding:
 
-        # -------- funding_rate_abs --------
+        # funding_rate_abs
         fr = funding.get("funding_rate")
         if isinstance(fr, (int, float)):
             features["funding_rate_abs"] = abs(float(fr))
 
-        # -------- time_to_funding_sec (PRIMARY PATH) --------
-        ttf = funding.get("time_to_funding_sec")
-        if isinstance(ttf, (int, float)):
-            # Guard against negative timing drift
-            if ttf >= 0:
-                features["time_to_funding_sec"] = float(ttf)
+        # Robust time_to_funding_sec
+        ttf = None
 
-        # -------- Fallback: derive from next_funding_time_utc --------
-        elif funding.get("next_funding_time_utc"):
+        raw_ttf = funding.get("time_to_funding_sec")
+        if isinstance(raw_ttf, (int, float)):
+            raw_ttf = float(raw_ttf)
+
+            # Allow small negative drift around rollover
+            if raw_ttf >= -10:
+                ttf = max(0.0, raw_ttf)
+
+        # Fallback using next_funding_time_utc
+        if ttf is None and funding.get("next_funding_time_utc"):
             try:
                 nft = funding["next_funding_time_utc"].replace("Z", "+00:00")
                 next_time = datetime.fromisoformat(nft)
                 now = datetime.now(timezone.utc)
                 delta_sec = (next_time - now).total_seconds()
 
-                if delta_sec >= 0:
-                    features["time_to_funding_sec"] = float(delta_sec)
+                if delta_sec >= -10:
+                    ttf = max(0.0, delta_sec)
             except Exception:
                 pass
+
+        if ttf is not None:
+            features["time_to_funding_sec"] = float(ttf)
 
     # =====================================================
     # PRICE VOLATILITY (5 MIN)
