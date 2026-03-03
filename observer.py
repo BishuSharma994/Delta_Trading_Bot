@@ -62,14 +62,12 @@ logging.basicConfig(
 
 logging.info("OBSERVER BOOTSTRAP OK")
 
+
 # =========================
 # PERPETUAL PRODUCT LOADER
 # =========================
 def load_perpetual_products():
-    r = requests.get(
-        BASE_URL + "/v2/products",
-        timeout=HTTP_TIMEOUT,
-    )
+    r = requests.get(BASE_URL + "/v2/products", timeout=HTTP_TIMEOUT)
     r.raise_for_status()
 
     products = r.json()["result"]
@@ -86,16 +84,15 @@ def load_perpetual_products():
 
     return perp_map
 
+
 # =========================
 # TICKER DATA
 # =========================
 def get_ticker(symbol):
-    r = requests.get(
-        BASE_URL + f"/v2/tickers/{symbol}",
-        timeout=HTTP_TIMEOUT,
-    )
+    r = requests.get(BASE_URL + f"/v2/tickers/{symbol}", timeout=HTTP_TIMEOUT)
     r.raise_for_status()
     return r.json()["result"]
+
 
 # =========================
 # FUNDING TIMER
@@ -105,19 +102,20 @@ def compute_time_to_funding(loop_start):
     next_funding_ts = ((now_ts // FUNDING_INTERVAL_SECONDS) + 1) * FUNDING_INTERVAL_SECONDS
     return next_funding_ts - now_ts
 
+
 # =========================
 # MAIN LOOP
 # =========================
 def main():
     logging.info("OBSERVER STARTED")
-    
+
     state_engine = StateEngine()
     funding_strategy = FundingBiasStrategy()
     volatility_strategy = VolatilityRegimeStrategy()
 
     SYMBOLS = load_perpetual_products()
     logging.info("PERPETUAL SYMBOL MAP LOADED: %s", SYMBOLS)
-    
+
     while True:
         loop_start = datetime.now(timezone.utc)
 
@@ -178,20 +176,27 @@ def main():
                 # -------- EVALUATION --------
                 decision = evaluate(features)
 
-                state_engine.process(symbol, decision, features)
+                # -------- STATE ENGINE --------
+                state_engine.process(
+                    symbol,
+                    decision,
+                    features,
+                    mark_price,
+                    funding_vote,
+                    volatility_vote,
+                )
 
                 write_event("decision.jsonl", {
-                     "timestamp_utc": loop_start.isoformat(),
-                     "symbol": symbol,
-                     "decision": decision,
-                     "features": {
-                         "funding_rate_abs": features.get("funding_rate_abs"),
-                         "time_to_funding_sec": features.get("time_to_funding_sec"),
-                         "pre_volatility_5m": features.get("pre_volatility_5m"),
-    },
-    "feature_states": features.get("_feature_states", {}),
-})
-
+                    "timestamp_utc": loop_start.isoformat(),
+                    "symbol": symbol,
+                    "decision": decision,
+                    "features": {
+                        "funding_rate_abs": features.get("funding_rate_abs"),
+                        "time_to_funding_sec": features.get("time_to_funding_sec"),
+                        "pre_volatility_5m": features.get("pre_volatility_5m"),
+                    },
+                    "feature_states": features.get("_feature_states", {}),
+                })
 
                 logging.info(
                     "DECISION | %s | %s",
@@ -205,6 +210,7 @@ def main():
 
         logging.info("HEARTBEAT | loop_complete")
         time.sleep(LOOP_INTERVAL_SECONDS)
+
 
 # =========================
 # ENTRY POINT
