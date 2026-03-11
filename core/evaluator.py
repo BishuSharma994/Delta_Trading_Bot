@@ -25,7 +25,7 @@ def _valid_vote(vote: dict) -> bool:
     )
 
 
-def evaluate(features: dict) -> dict:
+def evaluate(features: dict, symbol: str | None = None) -> dict:
     now = datetime.now(timezone.utc).isoformat()
 
     # -------------------------
@@ -45,8 +45,8 @@ def evaluate(features: dict) -> dict:
     # -------------------------
     # STRATEGY CONFLUENCE
     # -------------------------
-    funding_vote = get_latest_strategy_vote("funding_bias")
-    vol_vote = get_latest_strategy_vote("volatility_regime")
+    funding_vote = get_latest_strategy_vote("funding_bias", symbol=symbol)
+    vol_vote = get_latest_strategy_vote("volatility_regime", symbol=symbol)
 
     supporting_votes = []
 
@@ -78,7 +78,7 @@ def evaluate(features: dict) -> dict:
     # -------------------------
     return {
         "ts": now,
-        "state": "INSUFFICIENT_DATA",
+        "state": "NO_EDGE",
         "score": 0.0,
         "notes": "Confluence not satisfied",
     }

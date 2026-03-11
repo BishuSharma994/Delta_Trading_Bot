@@ -93,15 +93,18 @@ def get_latest_book(symbol: str):
 # -------------------------
 # STRATEGY VOTES MEMORY
 # -------------------------
-def get_latest_strategy_vote(strategy_name: str):
+def get_latest_strategy_vote(strategy_name: str, symbol: str | None = None):
     """
     Returns the most recent vote emitted by a strategy.
     """
     events = read_events("strategy_votes.jsonl")
 
     for event in reversed(events):
-        if event.get("strategy") == strategy_name:
-            return event.get("vote")
+        if event.get("strategy") != strategy_name:
+            continue
+        if symbol is not None and event.get("symbol") != symbol:
+            continue
+        return event.get("vote")
 
     return None
 # -------------------------
@@ -125,4 +128,3 @@ def get_recent_feature_values(feature_name: str, limit: int = 60):
             break
 
     return list(reversed(values))
-

@@ -17,7 +17,8 @@ from dotenv import load_dotenv
 # ENSURE PROJECT ROOT ON PATH
 # -------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT.parent))
+if str(PROJECT_ROOT.parent) not in sys.path:
+    sys.path.append(str(PROJECT_ROOT.parent))
 os.chdir(PROJECT_ROOT)
 
 # -------------------------
@@ -29,7 +30,9 @@ API_KEY = os.getenv("DELTA_API_KEY")
 API_SECRET = os.getenv("DELTA_API_SECRET")
 
 if not API_KEY or not API_SECRET:
-    raise RuntimeError("API keys not loaded")
+    logging.warning(
+        "DELTA API credentials not loaded; running in public market-data dry-run mode."
+    )
 
 # -------------------------
 # INTERNAL IMPORTS
@@ -174,7 +177,7 @@ def main():
                 })
 
                 # -------- EVALUATION --------
-                decision = evaluate(features)
+                decision = evaluate(features, symbol=symbol)
 
                 # -------- STATE ENGINE --------
                 state_engine.process(
