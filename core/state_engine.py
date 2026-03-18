@@ -6,37 +6,32 @@ from pathlib import Path
 
 from utils.io import write_event
 
-
 STATE_FILE = Path("execution_state.json")
 
-
-# =====================================================
-# Symbol State
-# =====================================================
 
 class SymbolState:
     def __init__(self):
 
-        self.state = "FLAT"  # FLAT | IN_FUNDING_TRADE | IN_VOL_TRADE
-        self.trade_type = None  # None | FUNDING | VOL
+        self.state = "FLAT"
+        self.trade_type = None  # FUNDING / VOL
+        self.side = None  # LONG / SHORT
 
         self.entry_time = None
         self.entry_price = None
+        self.peak_price = None
+        self.trough_price = None
 
         self.exit_funding_ts = None
 
         self.trade_date = None
         self.daily_trade_count = 0
-        self.funding_trade_taken = False
-        self.vol_trade_taken = False
 
-        self.last_decision_state = None
+        self.funding_trade_taken = False
+        self.vol_long_taken = False
+        self.vol_short_taken = False
+
         self.last_ttf = None
 
-
-# =====================================================
-# State Engine
-# =====================================================
 
 class StateEngine:
 
@@ -44,82 +39,33 @@ class StateEngine:
         self.symbols = {}
         self._load()
 
-    # -------------------------
-    # Persistence
-    # -------------------------
-
     def _load(self):
         if STATE_FILE.exists():
-            with open(STATE_FILE, "r") as f:
+            with open(STATE_FILE) as f:
                 raw = json.load(f)
 
             for symbol, data in raw.items():
-
                 s = SymbolState()
 
-                s.state = data.get("state", "FLAT")
-                s.trade_type = data.get("trade_type")
-                s.entry_time = data.get("entry_time")
-                s.entry_price = data.get("entry_price")
-                s.exit_funding_ts = data.get("exit_funding_ts")
-                s.trade_date = data.get("trade_date")
-                s.daily_trade_count = data.get("daily_trade_count", 0)
-                s.funding_trade_taken = data.get("funding_trade_taken", False)
-                s.vol_trade_taken = data.get("vol_trade_taken", False)
-                s.last_decision_state = data.get("last_decision_state")
-                s.last_ttf = data.get("last_ttf")
-
+                s.__dict__.update(data)
                 self.symbols[symbol] = s
 
     def _save(self):
-
-        raw = {}
-
-        for symbol, s in self.symbols.items():
-
-            raw[symbol] = {
-                "state": s.state,
-                "trade_type": s.trade_type,
-                "entry_time": s.entry_time,
-                "entry_price": s.entry_price,
-                "exit_funding_ts": s.exit_funding_ts,
-                "trade_date": s.trade_date,
-                "daily_trade_count": s.daily_trade_count,
-                "funding_trade_taken": s.funding_trade_taken,
-                "vol_trade_taken": s.vol_trade_taken,
-                "last_decision_state": s.last_decision_state,
-                "last_ttf": s.last_ttf,
-            }
-
+        raw = {k: v.__dict__ for k, v in self.symbols.items()}
         with open(STATE_FILE, "w") as f:
             json.dump(raw, f, indent=2)
 
-    def _log_paper_trade(self, symbol, action, trade_type, price, reason):
+    def _log(self, symbol, action, trade_type, side, price, reason):
+        write_event("paper_trades.jsonl", {
+            "symbol": symbol,
+            "action": action,
+            "trade_type": trade_type,
+            "side": side,
+            "price": float(price),
+            "reason": reason,
+        })
 
-        write_event(
-            "paper_trades.jsonl",
-            {
-                "symbol": symbol,
-                "action": action,
-                "trade_type": trade_type,
-                "price": float(price),
-                "reason": reason,
-            },
-        )
-
-    # =====================================================
-    # Core Process
-    # =====================================================
-
-    def process(
-        self,
-        symbol,
-        decision,
-        features,
-        current_price,
-        funding_vote,
-        volatility_vote,
-    ):
+    def process(self, symbol, decision, features, price, funding_vote, vol_vote):
 
         now = datetime.now(timezone.utc)
 
@@ -128,242 +74,198 @@ class StateEngine:
 
         s = self.symbols[symbol]
 
-        current_decision_state = decision.get("state")
-        current_ttf = features.get("time_to_funding_sec")
+        ttf = features.get("time_to_funding_sec")
+        funding_rate = features.get("funding_rate")  # MUST exist
 
-        # -------------------------
-        # Daily Reset
-        # -------------------------
-
+        # ---------------- DAILY RESET ----------------
         today = now.date().isoformat()
-
         if s.trade_date != today:
             s.trade_date = today
             s.daily_trade_count = 0
             s.funding_trade_taken = False
-            s.vol_trade_taken = False
+            s.vol_long_taken = False
+            s.vol_short_taken = False
 
-        # -------------------------
-        # Hard Cap
-        # -------------------------
-
-        if s.daily_trade_count >= 2:
-            s.last_decision_state = current_decision_state
-            s.last_ttf = current_ttf
+        if s.daily_trade_count >= 3:
+            s.last_ttf = ttf
             self._save()
             return
 
-        # =====================================================
-        # ENTRY LOGIC
-        # =====================================================
-
+        # =================================================
+        # ENTRY
+        # =================================================
         if s.state == "FLAT":
 
-            # -------------------------
-            # Funding Entry
-            # -------------------------
-
-            FUNDING_WINDOW_SECONDS = 120
-
+            # ---------- FUNDING ----------
             if (
                 not s.funding_trade_taken
-                and isinstance(current_ttf, (int, float))
-                and current_ttf <= FUNDING_WINDOW_SECONDS
-                and current_decision_state == "EDGE_DETECTED"
+                and isinstance(ttf, (int, float))
+                and ttf <= 120
+                and funding_rate is not None
             ):
+
+                # FUNDING LOGIC (CORRECT)
+                # Positive funding → SHORT
+                # Negative funding → LONG
+
+                if funding_rate > 0:
+                    side = "SHORT"
+                else:
+                    side = "LONG"
 
                 s.state = "IN_FUNDING_TRADE"
                 s.trade_type = "FUNDING"
+                s.side = side
                 s.entry_time = now.isoformat()
-                s.entry_price = current_price
+                s.entry_price = price
+                s.peak_price = price
+                s.trough_price = price
 
-                funding_ts = now + timedelta(seconds=float(current_ttf))
-                s.exit_funding_ts = funding_ts.isoformat()
+                s.exit_funding_ts = (now + timedelta(seconds=ttf)).isoformat()
 
                 s.daily_trade_count += 1
                 s.funding_trade_taken = True
 
-                print(f"[FUNDING_ENTRY] {symbol}")
+                print(f"[FUNDING_ENTRY] {symbol} {side}")
 
-                self._log_paper_trade(
-                    symbol,
-                    "ENTRY",
-                    "FUNDING",
-                    current_price,
-                    "funding_window_and_edge_detected",
-                )
+                self._log(symbol, "ENTRY", "FUNDING", side, price, "funding_entry")
 
-            # -------------------------
-            # Volatility Entry (with momentum confirmation)
-            # -------------------------
-
+            # ---------- VOL LONG ----------
             elif (
-                not s.vol_trade_taken
-                and isinstance(volatility_vote, dict)
-                and volatility_vote.get("state") == "EXPANSION_DETECTED"
+                not s.vol_long_taken
+                and vol_vote.get("state") == "EXPANSION_DETECTED"
             ):
 
-                recent_prices = features.get("recent_prices")
+                recent = features.get("recent_prices")
 
-                momentum = False
+                if recent and len(recent) >= 5:
+                    sma = sum(recent[-5:]) / 5
 
-                if recent_prices and len(recent_prices) >= 5:
+                    if recent[-1] > sma:
 
-                    sma5 = sum(recent_prices[-5:]) / 5
+                        s.state = "IN_VOL_TRADE"
+                        s.trade_type = "VOL"
+                        s.side = "LONG"
+                        s.entry_time = now.isoformat()
+                        s.entry_price = price
+                        s.peak_price = price
+                        s.trough_price = price
 
-                    if recent_prices[-1] > sma5:
-                        momentum = True
+                        s.daily_trade_count += 1
+                        s.vol_long_taken = True
 
-                if momentum:
+                        print(f"[VOL_LONG_ENTRY] {symbol}")
 
-                    s.state = "IN_VOL_TRADE"
-                    s.trade_type = "VOL"
-                    s.entry_time = now.isoformat()
-                    s.entry_price = current_price
+                        self._log(symbol, "ENTRY", "VOL", "LONG", price, "vol_long")
 
-                    s.daily_trade_count += 1
-                    s.vol_trade_taken = True
+            # ---------- VOL SHORT ----------
+            elif (
+                not s.vol_short_taken
+                and vol_vote.get("state") == "EXPANSION_DETECTED"
+            ):
 
-                    print(f"[VOL_ENTRY] {symbol}")
+                recent = features.get("recent_prices")
 
-                    self._log_paper_trade(
-                        symbol,
-                        "ENTRY",
-                        "VOL",
-                        current_price,
-                        "volatility_expansion_detected",
-                    )
+                if recent and len(recent) >= 5:
+                    sma = sum(recent[-5:]) / 5
 
-        # =====================================================
-        # FUNDING TRADE MANAGEMENT
-        # =====================================================
+                    if recent[-1] < sma:
 
+                        s.state = "IN_VOL_TRADE"
+                        s.trade_type = "VOL"
+                        s.side = "SHORT"
+                        s.entry_time = now.isoformat()
+                        s.entry_price = price
+                        s.peak_price = price
+                        s.trough_price = price
+
+                        s.daily_trade_count += 1
+                        s.vol_short_taken = True
+
+                        print(f"[VOL_SHORT_ENTRY] {symbol}")
+
+                        self._log(symbol, "ENTRY", "VOL", "SHORT", price, "vol_short")
+
+        # =================================================
+        # FUNDING MANAGEMENT
+        # =================================================
         elif s.state == "IN_FUNDING_TRADE":
 
-            if s.entry_price:
+            if s.side == "LONG":
+                move = (price - s.entry_price) / s.entry_price
+            else:
+                move = (s.entry_price - price) / s.entry_price
 
-                move_pct = (current_price - s.entry_price) / s.entry_price
+            exit_reason = None
 
-                if abs(move_pct) >= 0.003:
+            if move <= -0.003:
+                exit_reason = "funding_stop"
 
-                    print(f"[FUNDING_STOP] {symbol}")
+            if not exit_reason and s.exit_funding_ts:
+                if now >= datetime.fromisoformat(s.exit_funding_ts):
+                    exit_reason = "funding_time"
 
-                    self._log_paper_trade(
-                        symbol,
-                        "EXIT",
-                        "FUNDING",
-                        current_price,
-                        "funding_stop_loss",
-                    )
+            if not exit_reason and s.last_ttf and ttf:
+                if ttf > s.last_ttf:
+                    exit_reason = "funding_rollover"
 
-                    s.state = "FLAT"
-                    s.trade_type = None
-                    s.entry_time = None
-                    s.entry_price = None
-                    s.exit_funding_ts = None
+            if exit_reason:
 
-            if s.exit_funding_ts:
+                print(f"[FUNDING_EXIT] {symbol} {exit_reason}")
 
-                funding_time = datetime.fromisoformat(s.exit_funding_ts)
+                self._log(symbol, "EXIT", "FUNDING", s.side, price, exit_reason)
 
-                if now >= funding_time:
+                s.state = "FLAT"
+                s.trade_type = None
+                s.side = None
 
-                    print(f"[FUNDING_EXIT] {symbol}")
-
-                    self._log_paper_trade(
-                        symbol,
-                        "EXIT",
-                        "FUNDING",
-                        current_price,
-                        "funding_settlement_time",
-                    )
-
-                    s.state = "FLAT"
-                    s.trade_type = None
-                    s.entry_time = None
-                    s.entry_price = None
-                    s.exit_funding_ts = None
-
-        # =====================================================
-        # VOL TRADE MANAGEMENT
-        # =====================================================
-
+        # =================================================
+        # VOL MANAGEMENT (BOTH SIDES)
+        # =================================================
         elif s.state == "IN_VOL_TRADE":
 
-            if s.entry_price:
+            if s.side == "LONG":
+                move = (price - s.entry_price) / s.entry_price
 
-                move_pct = (current_price - s.entry_price) / s.entry_price
+                if price > s.peak_price:
+                    s.peak_price = price
 
-                # -------------------------
-                # 15 minute timeout
-                # -------------------------
+                trail = s.peak_price * (1 - 0.0025)
 
-                entry_time = datetime.fromisoformat(s.entry_time)
+                stop_hit = price <= trail
 
-                if (now - entry_time).seconds > 900:
+            else:
+                move = (s.entry_price - price) / s.entry_price
 
-                    print(f"[VOL_TIMEOUT] {symbol}")
+                if price < s.trough_price:
+                    s.trough_price = price
 
-                    self._log_paper_trade(
-                        symbol,
-                        "EXIT",
-                        "VOL",
-                        current_price,
-                        "vol_timeout_exit",
-                    )
+                trail = s.trough_price * (1 + 0.0025)
 
-                    s.state = "FLAT"
-                    s.trade_type = None
-                    s.entry_time = None
-                    s.entry_price = None
+                stop_hit = price >= trail
 
-                # -------------------------
-                # Take Profit (0.45%)
-                # -------------------------
+            entry_time = datetime.fromisoformat(s.entry_time)
 
-                elif move_pct >= 0.0045:
+            exit_reason = None
 
-                    print(f"[VOL_TP] {symbol}")
+            if (now - entry_time).seconds > 900:
+                exit_reason = "timeout"
 
-                    self._log_paper_trade(
-                        symbol,
-                        "EXIT",
-                        "VOL",
-                        current_price,
-                        "vol_take_profit",
-                    )
+            elif stop_hit:
+                exit_reason = "trailing_stop"
 
-                    s.state = "FLAT"
-                    s.trade_type = None
-                    s.entry_time = None
-                    s.entry_price = None
+            elif move <= -0.003:
+                exit_reason = "hard_stop"
 
-                # -------------------------
-                # Stop Loss (0.30%)
-                # -------------------------
+            if exit_reason:
 
-                elif move_pct <= -0.003:
+                print(f"[VOL_EXIT] {symbol} {exit_reason}")
 
-                    print(f"[VOL_STOP] {symbol}")
+                self._log(symbol, "EXIT", "VOL", s.side, price, exit_reason)
 
-                    self._log_paper_trade(
-                        symbol,
-                        "EXIT",
-                        "VOL",
-                        current_price,
-                        "vol_stop_loss",
-                    )
+                s.state = "FLAT"
+                s.trade_type = None
+                s.side = None
 
-                    s.state = "FLAT"
-                    s.trade_type = None
-                    s.entry_time = None
-                    s.entry_price = None
-
-        # -------------------------
-        # Diagnostics
-        # -------------------------
-
-        s.last_decision_state = current_decision_state
-        s.last_ttf = current_ttf
-
+        s.last_ttf = ttf
         self._save()

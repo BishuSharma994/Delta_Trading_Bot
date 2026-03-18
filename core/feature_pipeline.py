@@ -1,6 +1,6 @@
 # core/feature_pipeline.py
 # Pure feature derivation. No API calls. No side effects.
-# Institutional Stable Version (Rollover Hardened)
+# Institutional Stable Version (Rollover Hardened + Direction Ready)
 
 from datetime import datetime, timezone
 from statistics import stdev
@@ -32,34 +32,36 @@ def build_feature_vector(symbol: str):
     features = {}
 
     # =====================================================
-    # FUNDING FEATURES
+    # FUNDING FEATURES (FIXED)
     # =====================================================
     funding = get_latest_funding(symbol)
 
     if funding:
 
-        # funding_rate_abs
         fr = funding.get("funding_rate")
+
+        # REQUIRED: raw funding rate (for direction)
         if isinstance(fr, (int, float)):
+            features["funding_rate"] = float(fr)
             features["funding_rate_abs"] = abs(float(fr))
 
-        # Robust time_to_funding_sec
+        # -------- time_to_funding_sec (ROLLOVER SAFE) --------
         ttf = None
 
         raw_ttf = funding.get("time_to_funding_sec")
         if isinstance(raw_ttf, (int, float)):
             raw_ttf = float(raw_ttf)
 
-            # Allow small negative drift around rollover
             if raw_ttf >= -10:
                 ttf = max(0.0, raw_ttf)
 
-        # Fallback using next_funding_time_utc
+        # fallback
         if ttf is None and funding.get("next_funding_time_utc"):
             try:
                 nft = funding["next_funding_time_utc"].replace("Z", "+00:00")
                 next_time = datetime.fromisoformat(nft)
                 now = datetime.now(timezone.utc)
+
                 delta_sec = (next_time - now).total_seconds()
 
                 if delta_sec >= -10:
@@ -71,17 +73,23 @@ def build_feature_vector(symbol: str):
             features["time_to_funding_sec"] = float(ttf)
 
     # =====================================================
-    # PRICE VOLATILITY (5 MIN)
+    # PRICE DATA (FIXED - REQUIRED FOR VOL LOGIC)
     # =====================================================
     prices_5m = get_recent_prices(symbol, minutes=5)
 
-    if prices_5m and len(prices_5m) >= 2:
-        returns = _log_returns(prices_5m)
-        if returns and len(returns) >= 2:
-            try:
-                features["pre_volatility_5m"] = float(stdev(returns))
-            except Exception:
-                pass
+    if prices_5m:
+
+        # REQUIRED: expose raw prices
+        features["recent_prices"] = prices_5m
+
+        if len(prices_5m) >= 2:
+            returns = _log_returns(prices_5m)
+
+            if returns and len(returns) >= 2:
+                try:
+                    features["pre_volatility_5m"] = float(stdev(returns))
+                except Exception:
+                    pass
 
     # =====================================================
     # BID / ASK SPREAD
@@ -101,7 +109,7 @@ def build_feature_vector(symbol: str):
     # FEATURE READINESS STATES
     # =====================================================
     required = [
-        "funding_rate_abs",
+        "funding_rate",
         "time_to_funding_sec",
         "pre_volatility_5m",
     ]
