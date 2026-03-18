@@ -11,13 +11,13 @@ STATE_FILE = Path("execution_state.json")
 
 class SymbolState:
     def __init__(self):
-
         self.state = "FLAT"
         self.trade_type = None  # FUNDING / VOL
         self.side = None  # LONG / SHORT
 
         self.entry_time = None
         self.entry_price = None
+
         self.peak_price = None
         self.trough_price = None
 
@@ -34,7 +34,6 @@ class SymbolState:
 
 
 class StateEngine:
-
     def __init__(self):
         self.symbols = {}
         self._load()
@@ -46,7 +45,6 @@ class StateEngine:
 
             for symbol, data in raw.items():
                 s = SymbolState()
-
                 s.__dict__.update(data)
                 self.symbols[symbol] = s
 
@@ -75,7 +73,7 @@ class StateEngine:
         s = self.symbols[symbol]
 
         ttf = features.get("time_to_funding_sec")
-        funding_rate = features.get("funding_rate")  # MUST exist
+        funding_rate = features.get("funding_rate")
 
         # ---------------- DAILY RESET ----------------
         today = now.date().isoformat()
@@ -92,7 +90,7 @@ class StateEngine:
             return
 
         # =================================================
-        # ENTRY
+        # ENTRY LOGIC
         # =================================================
         if s.state == "FLAT":
 
@@ -104,14 +102,7 @@ class StateEngine:
                 and funding_rate is not None
             ):
 
-                # FUNDING LOGIC (CORRECT)
-                # Positive funding → SHORT
-                # Negative funding → LONG
-
-                if funding_rate > 0:
-                    side = "SHORT"
-                else:
-                    side = "LONG"
+                side = "SHORT" if funding_rate > 0 else "LONG"
 
                 s.state = "IN_FUNDING_TRADE"
                 s.trade_type = "FUNDING"
@@ -134,6 +125,7 @@ class StateEngine:
             elif (
                 not s.vol_long_taken
                 and vol_vote.get("state") == "EXPANSION_DETECTED"
+                and features.get("pre_volatility_5m", 0) > 0.0008
             ):
 
                 recent = features.get("recent_prices")
@@ -162,6 +154,7 @@ class StateEngine:
             elif (
                 not s.vol_short_taken
                 and vol_vote.get("state") == "EXPANSION_DETECTED"
+                and features.get("pre_volatility_5m", 0) > 0.0008
             ):
 
                 recent = features.get("recent_prices")
@@ -198,7 +191,7 @@ class StateEngine:
 
             exit_reason = None
 
-            if move <= -0.003:
+            if move <= -0.005:
                 exit_reason = "funding_stop"
 
             if not exit_reason and s.exit_funding_ts:
@@ -210,7 +203,6 @@ class StateEngine:
                     exit_reason = "funding_rollover"
 
             if exit_reason:
-
                 print(f"[FUNDING_EXIT] {symbol} {exit_reason}")
 
                 self._log(symbol, "EXIT", "FUNDING", s.side, price, exit_reason)
@@ -220,45 +212,58 @@ class StateEngine:
                 s.side = None
 
         # =================================================
-        # VOL MANAGEMENT (BOTH SIDES)
+        # VOL MANAGEMENT (FIXED)
         # =================================================
         elif s.state == "IN_VOL_TRADE":
 
+            TP = 0.006
+            SL = 0.005
+            MIN_ACTIVATION = 0.003
+
             if s.side == "LONG":
+
                 move = (price - s.entry_price) / s.entry_price
 
                 if price > s.peak_price:
                     s.peak_price = price
 
-                trail = s.peak_price * (1 - 0.0025)
+                if move >= TP:
+                    exit_reason = "take_profit"
 
-                stop_hit = price <= trail
+                elif move <= -SL:
+                    exit_reason = "hard_stop"
 
-            else:
+                elif move >= MIN_ACTIVATION:
+                    trail = s.peak_price * (1 - 0.005)
+                    exit_reason = "trailing_stop" if price <= trail else None
+                else:
+                    exit_reason = None
+
+            else:  # SHORT
+
                 move = (s.entry_price - price) / s.entry_price
 
                 if price < s.trough_price:
                     s.trough_price = price
 
-                trail = s.trough_price * (1 + 0.0025)
+                if move >= TP:
+                    exit_reason = "take_profit"
 
-                stop_hit = price >= trail
+                elif move <= -SL:
+                    exit_reason = "hard_stop"
+
+                elif move >= MIN_ACTIVATION:
+                    trail = s.trough_price * (1 + 0.005)
+                    exit_reason = "trailing_stop" if price >= trail else None
+                else:
+                    exit_reason = None
 
             entry_time = datetime.fromisoformat(s.entry_time)
 
-            exit_reason = None
-
-            if (now - entry_time).seconds > 900:
+            if not exit_reason and (now - entry_time).seconds > 900:
                 exit_reason = "timeout"
 
-            elif stop_hit:
-                exit_reason = "trailing_stop"
-
-            elif move <= -0.003:
-                exit_reason = "hard_stop"
-
             if exit_reason:
-
                 print(f"[VOL_EXIT] {symbol} {exit_reason}")
 
                 self._log(symbol, "EXIT", "VOL", s.side, price, exit_reason)
