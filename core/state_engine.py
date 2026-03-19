@@ -95,29 +95,47 @@ class StateEngine:
         if s.state == "FLAT":
 
             recent = features.get("recent_prices")
-            pre_volatility_5m = features.get("pre_volatility_5m", 0)
+            sma5 = features.get("sma_5")
+            sma10 = features.get("sma_10")
 
-            if recent and len(recent) >= 10:
-                sma5 = sum(recent[-5:]) / 5
-                sma10 = sum(recent[-10:]) / 10
+            vol_signal_present = (
+                isinstance(vol_vote, dict)
+                and vol_vote.get("state") == "EXPANSION_DETECTED"
+            )
 
+            if (
+                isinstance(sma5, (int, float))
+                and isinstance(sma10, (int, float))
+                and isinstance(price, (int, float))
+                and price > 0
+            ):
+                trend_strength = abs(float(sma5) - float(sma10)) / float(price)
+            else:
+                trend_strength = None
+
+            if recent and len(recent) >= 3:
                 momentum_up = recent[-1] > recent[-2] > recent[-3]
                 momentum_down = recent[-1] < recent[-2] < recent[-3]
-
-                base_price = recent[-3]
-                move_3 = abs(recent[-1] - base_price) / base_price if base_price else 0
-
-                vol_entry_ready = (
-                    vol_vote.get("state") == "EXPANSION_DETECTED"
-                    and move_3 >= 0.0025
-                    and pre_volatility_5m > 0.001
-                )
             else:
-                sma5 = None
-                sma10 = None
                 momentum_up = False
                 momentum_down = False
-                vol_entry_ready = False
+
+            # VOL entries require both strong MA separation and immediate continuation.
+            vol_long_entry_ready = (
+                vol_signal_present
+                and trend_strength is not None
+                and trend_strength > 0.0015
+                and sma5 > sma10
+                and momentum_up
+            )
+
+            vol_short_entry_ready = (
+                vol_signal_present
+                and trend_strength is not None
+                and trend_strength > 0.0015
+                and sma5 < sma10
+                and momentum_down
+            )
 
             # ---------- FUNDING ----------
             if (
@@ -149,9 +167,7 @@ class StateEngine:
             # ---------- VOL LONG ----------
             elif (
                 not s.vol_long_taken
-                and vol_entry_ready
-                and sma5 > sma10
-                and momentum_up
+                and vol_long_entry_ready
             ):
                 s.state = "IN_VOL_TRADE"
                 s.trade_type = "VOL"
@@ -171,9 +187,7 @@ class StateEngine:
             # ---------- VOL SHORT ----------
             elif (
                 not s.vol_short_taken
-                and vol_entry_ready
-                and sma5 < sma10
-                and momentum_down
+                and vol_short_entry_ready
             ):
                 s.state = "IN_VOL_TRADE"
                 s.trade_type = "VOL"
