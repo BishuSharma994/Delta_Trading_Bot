@@ -94,6 +94,31 @@ class StateEngine:
         # =================================================
         if s.state == "FLAT":
 
+            recent = features.get("recent_prices")
+            pre_volatility_5m = features.get("pre_volatility_5m", 0)
+
+            if recent and len(recent) >= 10:
+                sma5 = sum(recent[-5:]) / 5
+                sma10 = sum(recent[-10:]) / 10
+
+                momentum_up = recent[-1] > recent[-2] > recent[-3]
+                momentum_down = recent[-1] < recent[-2] < recent[-3]
+
+                base_price = recent[-3]
+                move_3 = abs(recent[-1] - base_price) / base_price if base_price else 0
+
+                vol_entry_ready = (
+                    vol_vote.get("state") == "EXPANSION_DETECTED"
+                    and move_3 >= 0.0025
+                    and pre_volatility_5m > 0.001
+                )
+            else:
+                sma5 = None
+                sma10 = None
+                momentum_up = False
+                momentum_down = False
+                vol_entry_ready = False
+
             # ---------- FUNDING ----------
             if (
                 not s.funding_trade_taken
@@ -124,60 +149,46 @@ class StateEngine:
             # ---------- VOL LONG ----------
             elif (
                 not s.vol_long_taken
-                and vol_vote.get("state") == "EXPANSION_DETECTED"
-                and features.get("pre_volatility_5m", 0) > 0.0008
+                and vol_entry_ready
+                and sma5 > sma10
+                and momentum_up
             ):
+                s.state = "IN_VOL_TRADE"
+                s.trade_type = "VOL"
+                s.side = "LONG"
+                s.entry_time = now.isoformat()
+                s.entry_price = price
+                s.peak_price = price
+                s.trough_price = price
 
-                recent = features.get("recent_prices")
+                s.daily_trade_count += 1
+                s.vol_long_taken = True
 
-                if recent and len(recent) >= 5:
-                    sma = sum(recent[-5:]) / 5
+                print(f"[VOL_LONG_ENTRY] {symbol}")
 
-                    if recent[-1] > sma:
-
-                        s.state = "IN_VOL_TRADE"
-                        s.trade_type = "VOL"
-                        s.side = "LONG"
-                        s.entry_time = now.isoformat()
-                        s.entry_price = price
-                        s.peak_price = price
-                        s.trough_price = price
-
-                        s.daily_trade_count += 1
-                        s.vol_long_taken = True
-
-                        print(f"[VOL_LONG_ENTRY] {symbol}")
-
-                        self._log(symbol, "ENTRY", "VOL", "LONG", price, "vol_long")
+                self._log(symbol, "ENTRY", "VOL", "LONG", price, "vol_long")
 
             # ---------- VOL SHORT ----------
             elif (
                 not s.vol_short_taken
-                and vol_vote.get("state") == "EXPANSION_DETECTED"
-                and features.get("pre_volatility_5m", 0) > 0.0008
+                and vol_entry_ready
+                and sma5 < sma10
+                and momentum_down
             ):
+                s.state = "IN_VOL_TRADE"
+                s.trade_type = "VOL"
+                s.side = "SHORT"
+                s.entry_time = now.isoformat()
+                s.entry_price = price
+                s.peak_price = price
+                s.trough_price = price
 
-                recent = features.get("recent_prices")
+                s.daily_trade_count += 1
+                s.vol_short_taken = True
 
-                if recent and len(recent) >= 5:
-                    sma = sum(recent[-5:]) / 5
+                print(f"[VOL_SHORT_ENTRY] {symbol}")
 
-                    if recent[-1] < sma:
-
-                        s.state = "IN_VOL_TRADE"
-                        s.trade_type = "VOL"
-                        s.side = "SHORT"
-                        s.entry_time = now.isoformat()
-                        s.entry_price = price
-                        s.peak_price = price
-                        s.trough_price = price
-
-                        s.daily_trade_count += 1
-                        s.vol_short_taken = True
-
-                        print(f"[VOL_SHORT_ENTRY] {symbol}")
-
-                        self._log(symbol, "ENTRY", "VOL", "SHORT", price, "vol_short")
+                self._log(symbol, "ENTRY", "VOL", "SHORT", price, "vol_short")
 
         # =================================================
         # FUNDING MANAGEMENT
