@@ -1,4 +1,3 @@
-```python
 def detect_regime(candles):
     """
     Regime detection for volatility gating.
