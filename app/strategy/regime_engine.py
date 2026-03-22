@@ -77,4 +77,3 @@ def detect_regime(candles):
             "dir_strength": 0.0,
             "trend_strength": 0.0,
         }
-```
