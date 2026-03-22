@@ -93,49 +93,15 @@ class StateEngine:
         # ENTRY LOGIC
         # =================================================
         if s.state == "FLAT":
-
-            recent = features.get("recent_prices")
-            sma5 = features.get("sma_5")
-            sma10 = features.get("sma_10")
-
-            vol_signal_present = (
-                isinstance(vol_vote, dict)
-                and vol_vote.get("state") == "EXPANSION_DETECTED"
+            vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
+            vol_reason = (
+                vol_vote.get("reason", "OB_retest_confirmation")
+                if isinstance(vol_vote, dict)
+                else "OB_retest_confirmation"
             )
 
-            if (
-                isinstance(sma5, (int, float))
-                and isinstance(sma10, (int, float))
-                and isinstance(price, (int, float))
-                and price > 0
-            ):
-                trend_strength = abs(float(sma5) - float(sma10)) / float(price)
-            else:
-                trend_strength = None
-
-            if recent and len(recent) >= 3:
-                momentum_up = recent[-1] > recent[-2] > recent[-3]
-                momentum_down = recent[-1] < recent[-2] < recent[-3]
-            else:
-                momentum_up = False
-                momentum_down = False
-
-            # VOL entries require both strong MA separation and immediate continuation.
-            vol_long_entry_ready = (
-                vol_signal_present
-                and trend_strength is not None
-                and trend_strength > 0.0015
-                and sma5 > sma10
-                and momentum_up
-            )
-
-            vol_short_entry_ready = (
-                vol_signal_present
-                and trend_strength is not None
-                and trend_strength > 0.0015
-                and sma5 < sma10
-                and momentum_down
-            )
+            vol_long_entry_ready = vol_signal == "LONG"
+            vol_short_entry_ready = vol_signal == "SHORT"
 
             # ---------- FUNDING ----------
             if (
@@ -182,7 +148,7 @@ class StateEngine:
 
                 print(f"[VOL_LONG_ENTRY] {symbol}")
 
-                self._log(symbol, "ENTRY", "VOL", "LONG", price, "vol_long")
+                self._log(symbol, "ENTRY", "VOL", "LONG", price, vol_reason)
 
             # ---------- VOL SHORT ----------
             elif (
@@ -202,7 +168,7 @@ class StateEngine:
 
                 print(f"[VOL_SHORT_ENTRY] {symbol}")
 
-                self._log(symbol, "ENTRY", "VOL", "SHORT", price, "vol_short")
+                self._log(symbol, "ENTRY", "VOL", "SHORT", price, vol_reason)
 
         # =================================================
         # FUNDING MANAGEMENT

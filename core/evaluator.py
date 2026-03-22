@@ -58,7 +58,10 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
 
     # -------- Volatility Vote --------
     if _valid_vote(vol_vote):
-        if vol_vote["state"] == "EXPANSION_DETECTED":
+        if (
+            vol_vote.get("signal") in ("LONG", "SHORT")
+            or vol_vote["state"] == "STRUCTURE_CONFIRMED"
+        ):
             supporting_votes.append("volatility_regime")
 
     # -------------------------

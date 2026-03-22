@@ -67,6 +67,57 @@ def get_recent_prices(symbol: str, minutes: int = 5):
     return list(reversed(prices))
 
 
+def get_recent_candles(symbol: str, limit: int = 40):
+    """
+    Reconstruct synthetic OHLC candles from sequential price snapshots.
+    This is volatility-only support data and does not affect funding logic.
+    """
+    events = read_events("price_snapshot.jsonl")
+
+    snapshots = []
+    for event in reversed(events):
+        if event.get("symbol") == symbol:
+            snapshots.append(event)
+
+        if len(snapshots) >= limit:
+            break
+
+    snapshots = list(reversed(snapshots))
+
+    candles = []
+    prev_close = None
+
+    for event in snapshots:
+        close_price = event.get("mark_price")
+        if not isinstance(close_price, (int, float)):
+            continue
+
+        close_price = float(close_price)
+        open_price = float(prev_close if prev_close is not None else close_price)
+
+        bounds = [open_price, close_price]
+
+        best_bid = event.get("best_bid")
+        best_ask = event.get("best_ask")
+        index_price = event.get("index_price")
+
+        for value in (best_bid, best_ask, index_price):
+            if isinstance(value, (int, float)):
+                bounds.append(float(value))
+
+        candles.append({
+            "timestamp_utc": event.get("timestamp_utc"),
+            "open": open_price,
+            "high": max(bounds),
+            "low": min(bounds),
+            "close": close_price,
+        })
+
+        prev_close = close_price
+
+    return candles
+
+
 # -------------------------
 # ORDER BOOK MEMORY
 # -------------------------

@@ -160,7 +160,7 @@ def main():
 
                 # -------- STRATEGY VOTES --------
                 funding_vote = funding_strategy.vote(features)
-                volatility_vote = volatility_strategy.vote(features)
+                volatility_vote = volatility_strategy.vote(features, symbol=symbol)
 
                 write_event("strategy_votes.jsonl", {
                     "timestamp_utc": loop_start.isoformat(),
