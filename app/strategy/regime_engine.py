@@ -54,7 +54,7 @@ def detect_regime(candles):
 
         # --- UPDATED THRESHOLDS (FIXED)
         if (
-            avg_range < 0.0012
+            avg_range < 0.0007
             or dir_strength < 0.4
             or trend_strength < 0.0005
         ):
