@@ -1,5 +1,3 @@
-\# strategies/volatility_regime.py
-
 import logging
 
 from app.strategy.msb_ob_engine import process_structure
@@ -26,12 +24,12 @@ def evaluate_volatility(symbol: str, candles: list[dict]) -> tuple[dict, dict]:
         regime_data.get("regime"),
     )
 
-    # --- HARD GATE (NO STRUCTURE PROCESSING)
+    # --- HARD GATE
     if regime_data["regime"] != "TRENDING":
         return regime_data, {"signal": None, "market": 0, "ob": None}
 
-    # --- STRUCTURE ONLY AFTER REGIME PASS
-    structure = process_structure(candles)
+    # --- STRUCTURE (STATEFUL)
+    structure = process_structure(symbol, candles)
 
     if not structure:
         return regime_data, {"signal": None, "market": 0, "ob": None}
@@ -48,19 +46,16 @@ def evaluate_volatility(symbol: str, candles: list[dict]) -> tuple[dict, dict]:
             _fmt_metric(ob.get("high")),
         )
 
-    # --- STRICT SIGNAL VALIDATION (NO EARLY ENTRY)
     signal = structure.get("signal")
 
-    if signal not in {"LONG", "SHORT"}:
-        return regime_data, structure
-
-    # --- FINAL ENTRY LOG (ONLY AFTER FULL VALIDATION)
-    logging.info(
-        "[ENTRY] symbol=%s signal=%s reason=%s",
-        symbol,
-        signal,
-        structure.get("reason"),
-    )
+    # --- FINAL ENTRY LOG (ONLY AFTER VALID SIGNAL)
+    if signal in {"LONG", "SHORT"}:
+        logging.info(
+            "[ENTRY] symbol=%s signal=%s reason=%s",
+            symbol,
+            signal,
+            structure.get("reason"),
+        )
 
     return regime_data, structure
 
@@ -74,7 +69,7 @@ class VolatilityRegimeStrategy(Strategy):
                 "state": "NO_DATA",
                 "bias": 0,
                 "confidence": 0.0,
-                "reason": "Symbol required for volatility structure",
+                "reason": "Symbol required",
                 "signal": None,
             }
 
@@ -85,26 +80,21 @@ class VolatilityRegimeStrategy(Strategy):
                 "state": "NO_DATA",
                 "bias": 0,
                 "confidence": 0.0,
-                "reason": "Insufficient candle history",
+                "reason": "Insufficient candles",
                 "signal": None,
             }
 
         regime_data, structure = evaluate_volatility(symbol, candles)
 
-        # --- HARD BLOCK
+        # --- REGIME BLOCK
         if regime_data["regime"] != "TRENDING":
             return {
                 "state": "NO_TRADE",
                 "bias": 0,
                 "confidence": 0.0,
-                "reason": "Regime filter blocked volatility trade",
+                "reason": "Regime blocked",
                 "signal": None,
                 "regime": regime_data.get("regime"),
-                "avg_range": regime_data.get("avg_range"),
-                "dir_strength": regime_data.get("dir_strength"),
-                "trend_strength": regime_data.get("trend_strength"),
-                "market": structure.get("market"),
-                "ob": structure.get("ob"),
             }
 
         signal = structure.get("signal")
@@ -117,34 +107,28 @@ class VolatilityRegimeStrategy(Strategy):
             ),
         )
 
-        # --- ONLY VALID STRUCTURE SIGNALS PASS
+        # --- VALID ENTRY
         if signal in {"LONG", "SHORT"}:
             return {
                 "state": "STRUCTURE_CONFIRMED",
                 "bias": 1 if signal == "LONG" else -1,
                 "confidence": confidence,
-                "reason": structure.get("reason", "OB_retest_confirmation"),
+                "reason": structure.get("reason"),
                 "signal": signal,
                 "sl": structure.get("sl"),
                 "regime": regime_data.get("regime"),
-                "avg_range": regime_data.get("avg_range"),
-                "dir_strength": regime_data.get("dir_strength"),
-                "trend_strength": regime_data.get("trend_strength"),
                 "market": structure.get("market"),
                 "ob": structure.get("ob"),
             }
 
-        # --- TRENDING BUT NO ENTRY
+        # --- NO ENTRY YET (WAITING FOR OB BREAK)
         return {
             "state": "TRENDING_NO_SIGNAL",
             "bias": 0,
             "confidence": 0.0,
-            "reason": "No OB confirmation",
+            "reason": "Waiting for OB breakout",
             "signal": None,
             "regime": regime_data.get("regime"),
-            "avg_range": regime_data.get("avg_range"),
-            "dir_strength": regime_data.get("dir_strength"),
-            "trend_strength": regime_data.get("trend_strength"),
             "market": structure.get("market"),
             "ob": structure.get("ob"),
         }
