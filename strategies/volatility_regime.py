@@ -1,10 +1,9 @@
-# strategies/volatility_regime.py
-# Structured volatility regime strategy (V2.5)
+\# strategies/volatility_regime.py
 
 import logging
 
-from Delta_Trading_Bot.app.strategy.msb_ob_engine import process_structure
-from Delta_Trading_Bot.app.strategy.regime_engine import detect_regime
+from app.strategy.msb_ob_engine import process_structure
+from app.strategy.regime_engine import detect_regime
 from Delta_Trading_Bot.data.memory import get_recent_candles
 from Delta_Trading_Bot.strategies.base import Strategy
 
@@ -27,10 +26,15 @@ def evaluate_volatility(symbol: str, candles: list[dict]) -> tuple[dict, dict]:
         regime_data.get("regime"),
     )
 
+    # --- HARD GATE (NO STRUCTURE PROCESSING)
     if regime_data["regime"] != "TRENDING":
         return regime_data, {"signal": None, "market": 0, "ob": None}
 
+    # --- STRUCTURE ONLY AFTER REGIME PASS
     structure = process_structure(candles)
+
+    if not structure:
+        return regime_data, {"signal": None, "market": 0, "ob": None}
 
     logging.info("[MSB] symbol=%s market=%s", symbol, structure.get("market"))
 
@@ -44,13 +48,19 @@ def evaluate_volatility(symbol: str, candles: list[dict]) -> tuple[dict, dict]:
             _fmt_metric(ob.get("high")),
         )
 
-    if structure.get("signal") in {"LONG", "SHORT"}:
-        logging.info(
-            "[ENTRY] symbol=%s signal=%s reason=%s",
-            symbol,
-            structure.get("signal"),
-            structure.get("reason"),
-        )
+    # --- STRICT SIGNAL VALIDATION (NO EARLY ENTRY)
+    signal = structure.get("signal")
+
+    if signal not in {"LONG", "SHORT"}:
+        return regime_data, structure
+
+    # --- FINAL ENTRY LOG (ONLY AFTER FULL VALIDATION)
+    logging.info(
+        "[ENTRY] symbol=%s signal=%s reason=%s",
+        symbol,
+        signal,
+        structure.get("reason"),
+    )
 
     return regime_data, structure
 
@@ -69,7 +79,8 @@ class VolatilityRegimeStrategy(Strategy):
             }
 
         candles = get_recent_candles(symbol, limit=40)
-        if len(candles) < 20:
+
+        if not candles or len(candles) < 20:
             return {
                 "state": "NO_DATA",
                 "bias": 0,
@@ -80,6 +91,7 @@ class VolatilityRegimeStrategy(Strategy):
 
         regime_data, structure = evaluate_volatility(symbol, candles)
 
+        # --- HARD BLOCK
         if regime_data["regime"] != "TRENDING":
             return {
                 "state": "NO_TRADE",
@@ -96,6 +108,7 @@ class VolatilityRegimeStrategy(Strategy):
             }
 
         signal = structure.get("signal")
+
         confidence = min(
             1.0,
             max(
@@ -104,6 +117,7 @@ class VolatilityRegimeStrategy(Strategy):
             ),
         )
 
+        # --- ONLY VALID STRUCTURE SIGNALS PASS
         if signal in {"LONG", "SHORT"}:
             return {
                 "state": "STRUCTURE_CONFIRMED",
@@ -120,11 +134,12 @@ class VolatilityRegimeStrategy(Strategy):
                 "ob": structure.get("ob"),
             }
 
+        # --- TRENDING BUT NO ENTRY
         return {
             "state": "TRENDING_NO_SIGNAL",
             "bias": 0,
             "confidence": 0.0,
-            "reason": "No MSB/OB pullback entry",
+            "reason": "No OB confirmation",
             "signal": None,
             "regime": regime_data.get("regime"),
             "avg_range": regime_data.get("avg_range"),
