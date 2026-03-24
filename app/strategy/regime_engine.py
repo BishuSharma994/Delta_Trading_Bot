@@ -1,41 +1,45 @@
 def detect_regime(candles):
-    """
-    Regime detection for volatility gating.
-
-    Output:
-    {
-        "regime": "TRENDING" | "NO_TRADE",
-        "avg_range": float,
-        "dir_strength": float,
-        "trend_strength": float,
-    }
-    """
-
-    # --- safety check
-    if not candles or len(candles) < 15:
-        return {
-            "regime": "NO_TRADE",
-            "avg_range": 0.0,
-            "dir_strength": 0.0,
-            "trend_strength": 0.0,
-        }
-
     try:
-        closes = [float(c["close"]) for c in candles]
-        highs = [float(c["high"]) for c in candles]
-        lows = [float(c["low"]) for c in candles]
+        if not candles or len(candles) < 15:
+            return {
+                "regime": "NO_TRADE",
+                "avg_range": 0.0,
+                "dir_strength": 0.0,
+                "trend_strength": 0.0,
+            }
 
-        # --- avg_range (last 10 candles)
+        closes = []
+        highs = []
+        lows = []
+
+        for c in candles:
+            close = c.get("close") or c.get("c")
+            high = c.get("high") or c.get("h")
+            low = c.get("low") or c.get("l")
+
+            if close is None or high is None or low is None:
+                continue
+
+            closes.append(float(close))
+            highs.append(float(high))
+            lows.append(float(low))
+
+        if len(closes) < 15:
+            return {
+                "regime": "NO_TRADE",
+                "avg_range": 0.0,
+                "dir_strength": 0.0,
+                "trend_strength": 0.0,
+            }
+
         ranges = []
         for i in range(-10, 0):
-            price = closes[i]
-            if price == 0:
+            if closes[i] == 0:
                 continue
-            ranges.append((highs[i] - lows[i]) / price)
+            ranges.append((highs[i] - lows[i]) / closes[i])
 
         avg_range = sum(ranges) / len(ranges) if ranges else 0.0
 
-        # --- directional strength (last 5 candles)
         dir_score = 0
         for i in range(-5, -1):
             if closes[i] > closes[i - 1]:
@@ -45,14 +49,12 @@ def detect_regime(candles):
 
         dir_strength = abs(dir_score) / 5
 
-        # --- SMA calculations
         sma5 = sum(closes[-5:]) / 5
         sma10 = sum(closes[-10:]) / 10
 
         last_price = closes[-1] if closes[-1] != 0 else 1e-9
         trend_strength = abs(sma5 - sma10) / last_price
 
-        # --- UPDATED THRESHOLDS (FIXED)
         if (
             avg_range < 0.0007
             or dir_strength < 0.4
@@ -69,8 +71,8 @@ def detect_regime(candles):
             "trend_strength": trend_strength,
         }
 
-    except Exception:
-        # fail-safe
+    except Exception as e:
+        print(f"[REGIME_ERROR] {e}")
         return {
             "regime": "NO_TRADE",
             "avg_range": 0.0,
