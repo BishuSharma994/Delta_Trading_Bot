@@ -1,6 +1,4 @@
-# app/strategy/msb_ob_engine.py
-
-# Stateful MSB + Order Block engine (aligned with Pine logic)
+# Stateful MSB + OB engine with continuation filter (FINAL FIX)
 
 zigzag_len = 9
 fib_factor = 0.273
@@ -27,7 +25,7 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
     closes = [float(c["close"]) for c in candles]
     opens = [float(c["open"]) for c in candles]
 
-    # --- simple swing approximation (same as before)
+    # --- swing detection
     h0 = max(highs[-zigzag_len:])
     h1 = max(highs[-2 * zigzag_len : -zigzag_len])
 
@@ -36,18 +34,18 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
 
     market = 0
 
-    # --- MSB detection
+    # --- MSB
     if h0 > h1 and h0 > h1 + abs(h1 - l0) * fib_factor:
         market = 1
     elif l0 < l1 and l0 < l1 - abs(h0 - l1) * fib_factor:
         market = -1
 
-    # --- detect OB
+    # --- OB detection
     ob = None
 
     if market == 1:
         for i in range(len(candles) - 2, len(candles) - zigzag_len, -1):
-            if opens[i] > closes[i]:  # bearish candle
+            if opens[i] > closes[i]:
                 ob = {
                     "type": "BU_OB",
                     "high": highs[i],
@@ -57,7 +55,7 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
 
     elif market == -1:
         for i in range(len(candles) - 2, len(candles) - zigzag_len, -1):
-            if opens[i] < closes[i]:  # bullish candle
+            if opens[i] < closes[i]:
                 ob = {
                     "type": "BE_OB",
                     "high": highs[i],
@@ -73,7 +71,6 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
     # --- STATE
     state = _get_state(symbol)
 
-    # reset state if OB changes
     if state["last_ob"] != ob:
         state["was_inside_ob"] = False
         state["last_ob"] = ob
@@ -89,29 +86,42 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
             "ob": ob,
         }
 
-    # --- STEP 2: trigger after leaving OB
+    # --- CONTINUATION FILTER (CRITICAL FIX)
+    recent_range = (max(highs[-3:]) - min(lows[-3:])) / closes[-1]
 
-    # SHORT
-    if market == -1 and state["was_inside_ob"] and price < ob["low"]:
-        state["was_inside_ob"] = False
+    if recent_range < 0.0012:
         return {
-            "signal": "SHORT",
-            "sl": ob["high"],
-            "reason": "OB_retest_breakdown",
+            "signal": None,
             "market": market,
             "ob": ob,
         }
 
-    # LONG
-    if market == 1 and state["was_inside_ob"] and price > ob["high"]:
-        state["was_inside_ob"] = False
-        return {
-            "signal": "LONG",
-            "sl": ob["low"],
-            "reason": "OB_retest_breakout",
-            "market": market,
-            "ob": ob,
-        }
+    # --- CONFIRMATION CANDLE
+    momentum_confirm = closes[-1] > closes[-2]
+
+    # --- SHORT ENTRY
+    if market == -1 and state["was_inside_ob"]:
+        if price < ob["low"] and closes[-1] < closes[-2]:
+            state["was_inside_ob"] = False
+            return {
+                "signal": "SHORT",
+                "sl": ob["high"],
+                "reason": "OB_retest_breakdown_confirmed",
+                "market": market,
+                "ob": ob,
+            }
+
+    # --- LONG ENTRY
+    if market == 1 and state["was_inside_ob"]:
+        if price > ob["high"] and momentum_confirm:
+            state["was_inside_ob"] = False
+            return {
+                "signal": "LONG",
+                "sl": ob["low"],
+                "reason": "OB_retest_breakout_confirmed",
+                "market": market,
+                "ob": ob,
+            }
 
     return {
         "signal": None,
