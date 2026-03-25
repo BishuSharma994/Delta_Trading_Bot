@@ -1,5 +1,6 @@
 def detect_regime(candles):
     try:
+        # --- safety
         if not candles or len(candles) < 15:
             return {
                 "regime": "NO_TRADE",
@@ -12,6 +13,7 @@ def detect_regime(candles):
         highs = []
         lows = []
 
+        # --- normalize input
         for c in candles:
             close = c.get("close") or c.get("c")
             high = c.get("high") or c.get("h")
@@ -32,14 +34,17 @@ def detect_regime(candles):
                 "trend_strength": 0.0,
             }
 
+        # --- avg range (volatility / expansion)
         ranges = []
         for i in range(-10, 0):
-            if closes[i] == 0:
+            price = closes[i]
+            if price == 0:
                 continue
-            ranges.append((highs[i] - lows[i]) / closes[i])
+            ranges.append((highs[i] - lows[i]) / price)
 
         avg_range = sum(ranges) / len(ranges) if ranges else 0.0
 
+        # --- directional strength
         dir_score = 0
         for i in range(-5, -1):
             if closes[i] > closes[i - 1]:
@@ -49,16 +54,18 @@ def detect_regime(candles):
 
         dir_strength = abs(dir_score) / 5
 
+        # --- trend strength
         sma5 = sum(closes[-5:]) / 5
         sma10 = sum(closes[-10:]) / 10
 
         last_price = closes[-1] if closes[-1] != 0 else 1e-9
         trend_strength = abs(sma5 - sma10) / last_price
 
+        # --- STRICT REGIME FILTER (KEY FIX)
         if (
-            avg_range < 0.0007
-            or dir_strength < 0.4
-            or trend_strength < 0.0005
+            avg_range < 0.0012      # require expansion
+            or dir_strength < 0.5   # require directional consistency
+            or trend_strength < 0.001  # require real trend separation
         ):
             regime = "NO_TRADE"
         else:
