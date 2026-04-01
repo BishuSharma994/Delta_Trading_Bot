@@ -1,6 +1,7 @@
 # strategies/funding_bias.py
 # Vote-only funding bias strategy (V2.2)
 
+from Delta_Trading_Bot.config.risk import RISK
 from Delta_Trading_Bot.strategies.base import Strategy
 
 
@@ -14,13 +15,18 @@ class FundingBiasStrategy(Strategy):
         - timing relevant
         """
 
+        raw_fr = features.get("funding_rate")
         fr = features.get("funding_rate_abs")
         ttf = features.get("time_to_funding_sec")
 
         # -------------------------------------------------
         # HARD NO DATA
         # -------------------------------------------------
-        if not isinstance(fr, (int, float)) or not isinstance(ttf, (int, float)):
+        if (
+            not isinstance(raw_fr, (int, float))
+            or not isinstance(fr, (int, float))
+            or not isinstance(ttf, (int, float))
+        ):
             return {
                 "state": "NO_DATA",
                 "bias": 0,
@@ -31,7 +37,7 @@ class FundingBiasStrategy(Strategy):
         # -------------------------------------------------
         # WEAK FUNDING
         # -------------------------------------------------
-        if fr < 0.0005:
+        if fr < RISK.min_funding_rate_abs:
             return {
                 "state": "NEUTRAL",
                 "bias": 0,
@@ -42,7 +48,7 @@ class FundingBiasStrategy(Strategy):
         # -------------------------------------------------
         # TOO FAR FROM SETTLEMENT
         # -------------------------------------------------
-        if ttf > 3600:
+        if ttf > RISK.funding_signal_window_sec:
             return {
                 "state": "NEUTRAL",
                 "bias": 0,
@@ -53,9 +59,12 @@ class FundingBiasStrategy(Strategy):
         # -------------------------------------------------
         # ACTIONABLE FUNDING
         # -------------------------------------------------
+        bias = -1 if raw_fr > 0 else 1
+
         return {
             "state": "BIAS_DETECTED",
-            "bias": -1,  # positive funding → short bias
-            "confidence": min(fr * 20, 0.4),
+            "bias": bias,
+            "side": "SHORT" if bias < 0 else "LONG",
+            "confidence": min(fr * 25, 0.6),
             "reason": "High funding near settlement",
         }

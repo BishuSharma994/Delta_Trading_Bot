@@ -4,9 +4,35 @@ import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+from config.risk import RISK
 from utils.io import write_event
 
 STATE_FILE = Path("execution_state.json")
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _trade_return(side, entry_price, exit_price):
+    if (
+        side not in {"LONG", "SHORT"}
+        or not isinstance(entry_price, (int, float))
+        or not isinstance(exit_price, (int, float))
+        or entry_price <= 0
+    ):
+        return 0.0
+
+    if side == "LONG":
+        return (float(exit_price) - float(entry_price)) / float(entry_price)
+
+    return (float(entry_price) - float(exit_price)) / float(entry_price)
 
 
 class SymbolState:
@@ -31,6 +57,12 @@ class SymbolState:
         self.vol_short_taken = False
 
         self.last_ttf = None
+        self.last_observed_at = None
+        self.cooldown_until = None
+        self.warmup_loops_remaining = 0
+        self.daily_realized_return = 0.0
+        self.loss_streak = 0
+        self.last_exit_reason = None
 
 
 class StateEngine:
@@ -63,9 +95,98 @@ class StateEngine:
             "reason": reason,
         })
 
-    def process(self, symbol, decision, features, price, funding_vote, vol_vote):
+    def _reset_position(self, state):
+        state.state = "FLAT"
+        state.trade_type = None
+        state.side = None
+        state.entry_time = None
+        state.entry_price = None
+        state.peak_price = None
+        state.trough_price = None
+        state.exit_funding_ts = None
 
-        now = datetime.now(timezone.utc)
+    def _cooldown_seconds(self, exit_reason, realized_return):
+        if exit_reason in {"hard_stop", "funding_stop", "stale_recovery_exit"}:
+            return RISK.stop_loss_cooldown_sec
+
+        if realized_return < 0:
+            return RISK.losing_exit_cooldown_sec
+
+        return RISK.win_cooldown_sec
+
+    def _close_trade(self, symbol, state, price, exit_reason, now):
+        trade_type = state.trade_type
+        side = state.side
+
+        if trade_type in {"FUNDING", "VOL"} and side in {"LONG", "SHORT"}:
+            print(f"[{trade_type}_EXIT] {symbol} {exit_reason}")
+            self._log(symbol, "EXIT", trade_type, side, price, exit_reason)
+
+            realized_return = _trade_return(side, state.entry_price, price)
+            state.daily_realized_return += realized_return
+
+            if realized_return < 0:
+                state.loss_streak += 1
+            elif realized_return > 0:
+                state.loss_streak = 0
+
+            cooldown = self._cooldown_seconds(exit_reason, realized_return)
+            state.cooldown_until = (now + timedelta(seconds=cooldown)).isoformat()
+            state.last_exit_reason = exit_reason
+
+        self._reset_position(state)
+
+    def _position_is_stale(self, state, now):
+        entry_time = _parse_dt(state.entry_time)
+        if not entry_time:
+            return False
+
+        age_sec = (now - entry_time).total_seconds()
+        if state.trade_type == "FUNDING":
+            return age_sec > RISK.max_funding_trade_age_sec
+        if state.trade_type == "VOL":
+            return age_sec > RISK.max_vol_trade_age_sec
+        return False
+
+    def _can_attempt_entry(self, state, now):
+        if state.daily_trade_count >= RISK.max_daily_trades_per_symbol:
+            return False
+
+        if state.daily_realized_return <= -RISK.max_daily_loss_pct:
+            return False
+
+        if state.loss_streak >= RISK.max_consecutive_losses:
+            return False
+
+        cooldown_until = _parse_dt(state.cooldown_until)
+        if cooldown_until and now < cooldown_until:
+            return False
+
+        if state.warmup_loops_remaining > 0:
+            state.warmup_loops_remaining -= 1
+            return False
+
+        return True
+
+    def _record_entry(self, state, trade_type, side, price, now, exit_funding_ts=None):
+        state.state = f"IN_{trade_type}_TRADE"
+        state.trade_type = trade_type
+        state.side = side
+        state.entry_time = now.isoformat()
+        state.entry_price = float(price)
+        state.peak_price = float(price)
+        state.trough_price = float(price)
+        state.exit_funding_ts = exit_funding_ts
+        state.cooldown_until = None
+
+    def process(self, symbol, decision, features, price, funding_vote, vol_vote, now=None):
+
+        del decision
+
+        now = now or datetime.now(timezone.utc)
+
+        if not isinstance(price, (int, float)):
+            return
 
         if symbol not in self.symbols:
             self.symbols[symbol] = SymbolState()
@@ -74,6 +195,9 @@ class StateEngine:
 
         ttf = features.get("time_to_funding_sec")
         funding_rate = features.get("funding_rate")
+        funding_rate_abs = features.get("funding_rate_abs")
+        pre_volatility = features.get("pre_volatility_5m")
+        spread_pct = features.get("bid_ask_spread_pct")
 
         # ---------------- DAILY RESET ----------------
         today = now.date().isoformat()
@@ -83,9 +207,32 @@ class StateEngine:
             s.funding_trade_taken = False
             s.vol_long_taken = False
             s.vol_short_taken = False
+            s.daily_realized_return = 0.0
+            s.loss_streak = 0
 
-        if s.daily_trade_count >= 3:
+        # ---------------- STALE DATA / RECOVERY ----------------
+        last_seen = _parse_dt(s.last_observed_at)
+        if last_seen and (now - last_seen).total_seconds() > RISK.max_stale_loop_gap_sec:
+            if s.state != "FLAT":
+                self._close_trade(symbol, s, price, "stale_recovery_exit", now)
+
+            s.warmup_loops_remaining = max(
+                s.warmup_loops_remaining,
+                RISK.warmup_loops_after_stale_gap,
+            )
             s.last_ttf = ttf
+            s.last_observed_at = now.isoformat()
+            self._save()
+            return
+
+        if s.state != "FLAT" and self._position_is_stale(s, now):
+            self._close_trade(symbol, s, price, "stale_recovery_exit", now)
+            s.warmup_loops_remaining = max(
+                s.warmup_loops_remaining,
+                RISK.warmup_loops_after_stale_gap,
+            )
+            s.last_ttf = ttf
+            s.last_observed_at = now.isoformat()
             self._save()
             return
 
@@ -93,175 +240,157 @@ class StateEngine:
         # ENTRY LOGIC
         # =================================================
         if s.state == "FLAT":
-            vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
-            vol_reason = (
-                vol_vote.get("reason", "OB_retest_confirmation")
-                if isinstance(vol_vote, dict)
-                else "OB_retest_confirmation"
-            )
+            if self._can_attempt_entry(s, now):
+                vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
+                vol_reason = (
+                    vol_vote.get("reason", "OB_retest_confirmation")
+                    if isinstance(vol_vote, dict)
+                    else "OB_retest_confirmation"
+                )
+                vol_confidence = vol_vote.get("confidence") if isinstance(vol_vote, dict) else None
 
-            vol_long_entry_ready = vol_signal == "LONG"
-            vol_short_entry_ready = vol_signal == "SHORT"
+                funding_side = None
+                if isinstance(funding_vote, dict):
+                    funding_side = funding_vote.get("side")
+                    if funding_side not in {"LONG", "SHORT"}:
+                        bias = funding_vote.get("bias")
+                        if bias == 1:
+                            funding_side = "LONG"
+                        elif bias == -1:
+                            funding_side = "SHORT"
 
-            # ---------- FUNDING ----------
-            if (
-                not s.funding_trade_taken
-                and isinstance(ttf, (int, float))
-                and ttf <= 120
-                and funding_rate is not None
-            ):
+                funding_entry_ready = (
+                    not s.funding_trade_taken
+                    and isinstance(ttf, (int, float))
+                    and 0 <= ttf <= RISK.funding_entry_window_sec
+                    and isinstance(funding_rate, (int, float))
+                    and isinstance(funding_rate_abs, (int, float))
+                    and funding_rate_abs >= RISK.min_funding_rate_abs
+                    and isinstance(pre_volatility, (int, float))
+                    and pre_volatility <= RISK.max_funding_pre_volatility_5m
+                    and isinstance(spread_pct, (int, float))
+                    and spread_pct <= RISK.max_bid_ask_spread_pct
+                    and isinstance(funding_vote, dict)
+                    and funding_vote.get("state") == "BIAS_DETECTED"
+                    and funding_side in {"LONG", "SHORT"}
+                )
 
-                side = "SHORT" if funding_rate > 0 else "LONG"
+                vol_entry_ready = (
+                    isinstance(vol_vote, dict)
+                    and vol_vote.get("state") == "STRUCTURE_CONFIRMED"
+                    and vol_signal in {"LONG", "SHORT"}
+                    and isinstance(vol_confidence, (int, float))
+                    and vol_confidence >= RISK.min_vol_confidence
+                    and isinstance(pre_volatility, (int, float))
+                    and pre_volatility <= RISK.max_vol_pre_volatility_5m
+                    and isinstance(spread_pct, (int, float))
+                    and spread_pct <= RISK.max_bid_ask_spread_pct
+                    and not (
+                        isinstance(ttf, (int, float))
+                        and ttf <= RISK.funding_blackout_for_vol_sec
+                    )
+                )
 
-                s.state = "IN_FUNDING_TRADE"
-                s.trade_type = "FUNDING"
-                s.side = side
-                s.entry_time = now.isoformat()
-                s.entry_price = price
-                s.peak_price = price
-                s.trough_price = price
+                if funding_entry_ready:
+                    self._record_entry(
+                        s,
+                        "FUNDING",
+                        funding_side,
+                        price,
+                        now,
+                        exit_funding_ts=(now + timedelta(seconds=float(ttf))).isoformat(),
+                    )
 
-                s.exit_funding_ts = (now + timedelta(seconds=ttf)).isoformat()
+                    s.daily_trade_count += 1
+                    s.funding_trade_taken = True
 
-                s.daily_trade_count += 1
-                s.funding_trade_taken = True
+                    print(f"[FUNDING_ENTRY] {symbol} {funding_side}")
+                    self._log(symbol, "ENTRY", "FUNDING", funding_side, price, "funding_entry")
 
-                print(f"[FUNDING_ENTRY] {symbol} {side}")
+                elif vol_entry_ready and vol_signal == "LONG" and not s.vol_long_taken:
+                    self._record_entry(s, "VOL", "LONG", price, now)
 
-                self._log(symbol, "ENTRY", "FUNDING", side, price, "funding_entry")
+                    s.daily_trade_count += 1
+                    s.vol_long_taken = True
 
-            # ---------- VOL LONG ----------
-            elif (
-                not s.vol_long_taken
-                and vol_long_entry_ready
-            ):
-                s.state = "IN_VOL_TRADE"
-                s.trade_type = "VOL"
-                s.side = "LONG"
-                s.entry_time = now.isoformat()
-                s.entry_price = price
-                s.peak_price = price
-                s.trough_price = price
+                    print(f"[VOL_LONG_ENTRY] {symbol}")
+                    self._log(symbol, "ENTRY", "VOL", "LONG", price, vol_reason)
 
-                s.daily_trade_count += 1
-                s.vol_long_taken = True
+                elif vol_entry_ready and vol_signal == "SHORT" and not s.vol_short_taken:
+                    self._record_entry(s, "VOL", "SHORT", price, now)
 
-                print(f"[VOL_LONG_ENTRY] {symbol}")
+                    s.daily_trade_count += 1
+                    s.vol_short_taken = True
 
-                self._log(symbol, "ENTRY", "VOL", "LONG", price, vol_reason)
-
-            # ---------- VOL SHORT ----------
-            elif (
-                not s.vol_short_taken
-                and vol_short_entry_ready
-            ):
-                s.state = "IN_VOL_TRADE"
-                s.trade_type = "VOL"
-                s.side = "SHORT"
-                s.entry_time = now.isoformat()
-                s.entry_price = price
-                s.peak_price = price
-                s.trough_price = price
-
-                s.daily_trade_count += 1
-                s.vol_short_taken = True
-
-                print(f"[VOL_SHORT_ENTRY] {symbol}")
-
-                self._log(symbol, "ENTRY", "VOL", "SHORT", price, vol_reason)
+                    print(f"[VOL_SHORT_ENTRY] {symbol}")
+                    self._log(symbol, "ENTRY", "VOL", "SHORT", price, vol_reason)
 
         # =================================================
         # FUNDING MANAGEMENT
         # =================================================
         elif s.state == "IN_FUNDING_TRADE":
-
-            if s.side == "LONG":
-                move = (price - s.entry_price) / s.entry_price
-            else:
-                move = (s.entry_price - price) / s.entry_price
-
+            move = _trade_return(s.side, s.entry_price, price)
             exit_reason = None
 
-            if move <= -0.005:
+            if move <= -RISK.funding_stop_pct:
                 exit_reason = "funding_stop"
 
-            if not exit_reason and s.exit_funding_ts:
-                if now >= datetime.fromisoformat(s.exit_funding_ts):
-                    exit_reason = "funding_time"
+            exit_funding_ts = _parse_dt(s.exit_funding_ts)
+            if not exit_reason and exit_funding_ts and now >= exit_funding_ts:
+                exit_reason = "funding_time"
 
-            if not exit_reason and s.last_ttf and ttf:
-                if ttf > s.last_ttf:
-                    exit_reason = "funding_rollover"
+            if (
+                not exit_reason
+                and isinstance(s.last_ttf, (int, float))
+                and isinstance(ttf, (int, float))
+                and ttf > s.last_ttf
+            ):
+                exit_reason = "funding_rollover"
 
             if exit_reason:
-                print(f"[FUNDING_EXIT] {symbol} {exit_reason}")
-
-                self._log(symbol, "EXIT", "FUNDING", s.side, price, exit_reason)
-
-                s.state = "FLAT"
-                s.trade_type = None
-                s.side = None
+                self._close_trade(symbol, s, price, exit_reason, now)
 
         # =================================================
-        # VOL MANAGEMENT (FIXED)
+        # VOL MANAGEMENT
         # =================================================
         elif s.state == "IN_VOL_TRADE":
-
-            TP = 0.006
-            SL = 0.005
-            MIN_ACTIVATION = 0.003
+            move = _trade_return(s.side, s.entry_price, price)
+            exit_reason = None
 
             if s.side == "LONG":
-
-                move = (price - s.entry_price) / s.entry_price
-
                 if price > s.peak_price:
                     s.peak_price = price
 
-                if move >= TP:
+                if move >= RISK.vol_take_profit_pct:
                     exit_reason = "take_profit"
-
-                elif move <= -SL:
+                elif move <= -RISK.vol_hard_stop_pct:
                     exit_reason = "hard_stop"
-
-                elif move >= MIN_ACTIVATION:
-                    trail = s.peak_price * (1 - 0.005)
+                elif move >= RISK.vol_min_activation_pct:
+                    trail = s.peak_price * (1 - RISK.vol_trailing_stop_pct)
                     exit_reason = "trailing_stop" if price <= trail else None
-                else:
-                    exit_reason = None
-
-            else:  # SHORT
-
-                move = (s.entry_price - price) / s.entry_price
-
+            else:
                 if price < s.trough_price:
                     s.trough_price = price
 
-                if move >= TP:
+                if move >= RISK.vol_take_profit_pct:
                     exit_reason = "take_profit"
-
-                elif move <= -SL:
+                elif move <= -RISK.vol_hard_stop_pct:
                     exit_reason = "hard_stop"
-
-                elif move >= MIN_ACTIVATION:
-                    trail = s.trough_price * (1 + 0.005)
+                elif move >= RISK.vol_min_activation_pct:
+                    trail = s.trough_price * (1 + RISK.vol_trailing_stop_pct)
                     exit_reason = "trailing_stop" if price >= trail else None
-                else:
-                    exit_reason = None
 
-            entry_time = datetime.fromisoformat(s.entry_time)
-
-            if not exit_reason and (now - entry_time).seconds > 900:
+            entry_time = _parse_dt(s.entry_time)
+            if (
+                not exit_reason
+                and entry_time
+                and (now - entry_time).total_seconds() > RISK.vol_timeout_sec
+            ):
                 exit_reason = "timeout"
 
             if exit_reason:
-                print(f"[VOL_EXIT] {symbol} {exit_reason}")
-
-                self._log(symbol, "EXIT", "VOL", s.side, price, exit_reason)
-
-                s.state = "FLAT"
-                s.trade_type = None
-                s.side = None
+                self._close_trade(symbol, s, price, exit_reason, now)
 
         s.last_ttf = ttf
+        s.last_observed_at = now.isoformat()
         self._save()
