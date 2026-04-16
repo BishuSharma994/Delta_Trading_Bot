@@ -1,0 +1,74 @@
+name: deploy-to-vps
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-to-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?Missing GitHub secret VPS_HOST}"
+          : "${VPS_SSH_KEY:?Missing GitHub secret VPS_SSH_KEY}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          port="${VPS_PORT:-22}"
+          ssh-keyscan -p "$port" "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Pull latest code on VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_APP_DIR: ${{ secrets.VPS_APP_DIR }}
+          DEPLOY_BRANCH: main
+          DEPLOY_SERVICE_NAME: delta-trading-bot.service
+        run: |
+          set -euo pipefail
+          : "${VPS_HOST:?Missing GitHub secret VPS_HOST}"
+          : "${VPS_USER:?Missing GitHub secret VPS_USER}"
+
+          port="${VPS_PORT:-22}"
+          app_dir="${VPS_APP_DIR:-/root/Delta_Trading_Bot}"
+          quoted_app_dir="$(printf '%q' "$app_dir")"
+
+          ssh -i ~/.ssh/deploy_key \
+            -p "$port" \
+            -o IdentitiesOnly=yes \
+            "$VPS_USER@$VPS_HOST" \
+            "APP_DIR=$quoted_app_dir DEPLOY_BRANCH='$DEPLOY_BRANCH' DEPLOY_SERVICE_NAME='$DEPLOY_SERVICE_NAME' bash -s" <<'REMOTE_DEPLOY'
+          set -euo pipefail
+          cd "$APP_DIR"
+
+          if [ -f scripts/vps_pull_deploy.sh ]; then
+            bash scripts/vps_pull_deploy.sh
+            exit 0
+          fi
+
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "ERROR: tracked files on the VPS have local edits." >&2
+            git status --short --untracked-files=no >&2
+            exit 1
+          fi
+
+          git fetch origin "$DEPLOY_BRANCH"
+          git checkout "$DEPLOY_BRANCH"
+          git reset --hard "origin/$DEPLOY_BRANCH"
+          bash scripts/vps_pull_deploy.sh
+          REMOTE_DEPLOY

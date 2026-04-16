@@ -1,0 +1,15 @@
+[Unit]
+Description=Delta Trading Bot Observer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/Delta_Trading_Bot
+EnvironmentFile=-/root/Delta_Trading_Bot/.env
+ExecStart=/usr/bin/python3 /root/Delta_Trading_Bot/observer.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
