@@ -1,4 +1,7 @@
-# Stateful MSB + OB engine with continuation filter (FINAL FIX)
+# Stateful MSB + OB engine upgraded with expansion validation.
+
+from config.asset_rules import get_asset_rules
+from app.strategy.expansion_validator import validate_expansion
 
 zigzag_len = 9
 fib_factor = 0.273
@@ -17,6 +20,8 @@ def _get_state(symbol: str) -> dict:
 
 
 def process_structure(symbol: str, candles: list[dict]) -> dict:
+    asset_rules = get_asset_rules(symbol)
+
     if not candles or len(candles) < 20:
         return {"signal": None, "market": 0, "ob": None}
 
@@ -86,22 +91,15 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
             "ob": ob,
         }
 
-    # --- CONTINUATION FILTER (CRITICAL FIX)
-    recent_range = (max(highs[-3:]) - min(lows[-3:])) / closes[-1]
-
-    if recent_range < 0.0012:
-        return {
-            "signal": None,
-            "market": market,
-            "ob": ob,
-        }
-
-    # --- CONFIRMATION CANDLE
-    momentum_confirm = closes[-1] > closes[-2]
-
     # --- SHORT ENTRY
     if market == -1 and state["was_inside_ob"]:
-        if price < ob["low"] and closes[-1] < closes[-2]:
+        expansion = validate_expansion(
+            "SHORT",
+            candles,
+            ob["low"],
+            asset_rules,
+        )
+        if price < ob["low"] and expansion["is_valid"]:
             state["was_inside_ob"] = False
             return {
                 "signal": "SHORT",
@@ -109,11 +107,18 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
                 "reason": "OB_retest_breakdown_confirmed",
                 "market": market,
                 "ob": ob,
+                "expansion": expansion,
             }
 
     # --- LONG ENTRY
     if market == 1 and state["was_inside_ob"]:
-        if price > ob["high"] and momentum_confirm:
+        expansion = validate_expansion(
+            "LONG",
+            candles,
+            ob["high"],
+            asset_rules,
+        )
+        if price > ob["high"] and expansion["is_valid"]:
             state["was_inside_ob"] = False
             return {
                 "signal": "LONG",
@@ -121,6 +126,7 @@ def process_structure(symbol: str, candles: list[dict]) -> dict:
                 "reason": "OB_retest_breakout_confirmed",
                 "market": market,
                 "ob": ob,
+                "expansion": expansion,
             }
 
     return {

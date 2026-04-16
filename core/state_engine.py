@@ -4,6 +4,9 @@ import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+from app.strategy.exit_manager import build_vol_entry_context, evaluate_vol_exit
+from app.strategy.regime_filter import volatility_spike_detected
+from config.asset_rules import get_asset_rules
 from config.risk import RISK
 from utils.io import write_event
 
@@ -63,6 +66,7 @@ class SymbolState:
         self.daily_realized_return = 0.0
         self.loss_streak = 0
         self.last_exit_reason = None
+        self.vol_context = None
 
 
 class StateEngine:
@@ -104,9 +108,15 @@ class StateEngine:
         state.peak_price = None
         state.trough_price = None
         state.exit_funding_ts = None
+        state.vol_context = None
 
     def _cooldown_seconds(self, exit_reason, realized_return):
-        if exit_reason in {"hard_stop", "funding_stop", "stale_recovery_exit"}:
+        if exit_reason in {
+            "hard_stop",
+            "funding_stop",
+            "stale_recovery_exit",
+            "structure_break",
+        }:
             return RISK.stop_loss_cooldown_sec
 
         if realized_return < 0:
@@ -168,7 +178,16 @@ class StateEngine:
 
         return True
 
-    def _record_entry(self, state, trade_type, side, price, now, exit_funding_ts=None):
+    def _record_entry(
+        self,
+        state,
+        trade_type,
+        side,
+        price,
+        now,
+        exit_funding_ts=None,
+        vol_context=None,
+    ):
         state.state = f"IN_{trade_type}_TRADE"
         state.trade_type = trade_type
         state.side = side
@@ -178,6 +197,7 @@ class StateEngine:
         state.trough_price = float(price)
         state.exit_funding_ts = exit_funding_ts
         state.cooldown_until = None
+        state.vol_context = vol_context
 
     def process(self, symbol, decision, features, price, funding_vote, vol_vote, now=None):
 
@@ -192,6 +212,7 @@ class StateEngine:
             self.symbols[symbol] = SymbolState()
 
         s = self.symbols[symbol]
+        asset_rules = get_asset_rules(symbol)
 
         ttf = features.get("time_to_funding_sec")
         funding_rate = features.get("funding_rate")
@@ -273,6 +294,7 @@ class StateEngine:
                     and isinstance(funding_vote, dict)
                     and funding_vote.get("state") == "BIAS_DETECTED"
                     and funding_side in {"LONG", "SHORT"}
+                    and not volatility_spike_detected(vol_vote, asset_rules)
                 )
 
                 vol_entry_ready = (
@@ -308,7 +330,18 @@ class StateEngine:
                     self._log(symbol, "ENTRY", "FUNDING", funding_side, price, "funding_entry")
 
                 elif vol_entry_ready and vol_signal == "LONG" and not s.vol_long_taken:
-                    self._record_entry(s, "VOL", "LONG", price, now)
+                    self._record_entry(
+                        s,
+                        "VOL",
+                        "LONG",
+                        price,
+                        now,
+                        vol_context=build_vol_entry_context(
+                            "LONG",
+                            vol_vote,
+                            asset_rules,
+                        ),
+                    )
 
                     s.daily_trade_count += 1
                     s.vol_long_taken = True
@@ -317,7 +350,18 @@ class StateEngine:
                     self._log(symbol, "ENTRY", "VOL", "LONG", price, vol_reason)
 
                 elif vol_entry_ready and vol_signal == "SHORT" and not s.vol_short_taken:
-                    self._record_entry(s, "VOL", "SHORT", price, now)
+                    self._record_entry(
+                        s,
+                        "VOL",
+                        "SHORT",
+                        price,
+                        now,
+                        vol_context=build_vol_entry_context(
+                            "SHORT",
+                            vol_vote,
+                            asset_rules,
+                        ),
+                    )
 
                     s.daily_trade_count += 1
                     s.vol_short_taken = True
@@ -380,13 +424,15 @@ class StateEngine:
                     trail = s.trough_price * (1 + RISK.vol_trailing_stop_pct)
                     exit_reason = "trailing_stop" if price >= trail else None
 
-            entry_time = _parse_dt(s.entry_time)
-            if (
-                not exit_reason
-                and entry_time
-                and (now - entry_time).total_seconds() > RISK.vol_timeout_sec
-            ):
-                exit_reason = "timeout"
+            if not exit_reason:
+                exit_reason, updated_context = evaluate_vol_exit(
+                    symbol=symbol,
+                    state=s,
+                    price=price,
+                    vol_vote=vol_vote if isinstance(vol_vote, dict) else {},
+                    asset_rules=asset_rules,
+                )
+                s.vol_context = updated_context
 
             if exit_reason:
                 self._close_trade(symbol, s, price, exit_reason, now)
