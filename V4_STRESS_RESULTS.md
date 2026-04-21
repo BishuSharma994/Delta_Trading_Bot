@@ -1,49 +1,48 @@
-# V4 — Stress & Counterfactual Design
-Senior Analyst Layer (Design Only)
+Version: V5.1 | Status: PAPER STRESS VALIDATION ACTIVE | Last Updated: 2026-04-22
 
-Status: DESIGN — NO IMPLEMENTATION
+# V4 Stress Results
 
----
+The primary stress evidence for V5.1 is now real paper-trading performance rather than synthetic design-only testing.
 
-## PURPOSE
+## Validation Dataset
 
-Stress testing exists to **break hypotheses**.
+| Window | Scope |
+| --- | --- |
+| Apr 17-21 2026 | 44 closed paper trades across BTCUSD, ETHUSD, SOLUSD, BNBUSD |
 
-If a hypothesis survives stress, it earns credibility.
-If it fails, that is success.
+## Exit Reason Stress Table
 
----
+| Exit reason | Count | Win rate | Notes |
+| --- | --- | --- | --- |
+| `funding_stop` | 1 | 0% | Clean stop-loss failure |
+| `funding_time` | 19 | 47% | Main funding lifecycle exit |
+| `hard_stop` | 1 | 0% | Hard-loss containment |
+| `take_profit` | 1 | 100% | Too rare in V5.0 |
+| `timeout` | 22 | 50% | Primary failure mode |
 
-## STRESS METHODS (DESIGN)
+## Primary Stress Finding
 
-1. Feature Removal Test  
-   Remove one feature → does hypothesis collapse?
+Timeout exits were the main V5.0 weakness.
 
-2. Time Randomization  
-   Shuffle timestamps → does effect disappear?
+| Metric | Value |
+| --- | --- |
+| Timeout trades | 22 |
+| Timeout win rate | 50% |
+| Avg timeout PnL | +0.014% |
+| Interpretation | Near-zero expectancy due to premature exit of winners |
 
-3. Regime Inversion  
-   Flip regime labels → does outcome persist?
+Half of the timeout trades were winners, but many winners were cut before they could reach the `+0.65%` take-profit objective.
 
-4. Symbol Isolation  
-   Test hypothesis per symbol independently
+## Fix Applied In V5.1
 
----
+`app/strategy/exit_manager.py` now:
 
-## ACCEPTABLE OUTCOMES
+- Activates trailing stop only after `+0.10%` profit
+- Suppresses timeout when the trade is still profitable
+- Switches profitable timeout cases into trailing-stop mode instead of forcing immediate exit
 
-- Hypothesis fails under stress → EXPECTED
-- Hypothesis weakens → ACCEPTABLE
-- Hypothesis survives → RARE, valuable
+## Next Stress Validation
 
----
+The next required stress step is a fresh 72-hour paper-trading run after the V5.1 fixes. Success is measured through lower timeout frequency, higher take-profit frequency, and zero circuit-breaker triggers.
 
-## FORBIDDEN OUTCOMES
-
-- Hypothesis survives all stress easily
-- Results improve under randomization
-- Outcomes depend on one symbol only
-
----
-
-END OF DOCUMENT
+See `PROJECT_STATE.md` for full performance data.

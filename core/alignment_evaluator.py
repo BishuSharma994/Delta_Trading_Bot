@@ -14,8 +14,8 @@ STRATEGY_VOTES = DATA_DIR / "strategy_votes.jsonl"
 FUNDING_SNAPSHOTS = DATA_DIR / "funding_snapshot.jsonl"
 ALIGNMENT_OUT = DATA_DIR / "alignment_state.jsonl"
 
-CONFIDENCE_THRESHOLD = 0.30
-MAX_FUNDING_WINDOW_SEC = 3600  # 1 hour window
+CONFIDENCE_THRESHOLD = 0.65
+MAX_FUNDING_WINDOW_SEC = 900  # 15 minute window
 
 
 def load_latest_by_symbol(path):
@@ -28,6 +28,10 @@ def load_latest_by_symbol(path):
             row = json.loads(line)
             latest[row["symbol"]] = row
     return latest
+
+
+def _extract_direction(v):
+    return v if v in ("LONG", "SHORT") else None
 
 
 def main():
@@ -75,7 +79,18 @@ def main():
         alignment["funding_vote"] = funding_vote
         alignment["time_to_funding_sec"] = ttf
 
-        if vol_vote != funding_vote:
+        vol_confidence = float(vote.get("confidence", 0.0)) if isinstance(vote.get("confidence"), (int, float)) else 0.0
+        funding_confidence = min(float(funding.get("funding_rate_abs", 0.0)) * 25, 0.60)
+        computed_confidence = round((vol_confidence + funding_confidence) / 2, 4)
+
+        if computed_confidence < 0.50:
+            alignment["reason"] = "confidence_below_threshold"
+            write_alignment(alignment)
+            continue
+
+        vol_direction = _extract_direction(vol_vote)
+        funding_direction = _extract_direction(funding_vote)
+        if vol_direction is None or funding_direction is None or vol_direction != funding_direction:
             alignment["reason"] = "vote_misalignment"
             write_alignment(alignment)
             continue
@@ -87,8 +102,8 @@ def main():
 
         alignment.update({
             "alignment_state": "ALIGNED",
-            "direction": vol_vote,
-            "confidence": CONFIDENCE_THRESHOLD,
+            "direction": vol_direction,
+            "confidence": computed_confidence,
             "reason": "volatility_funding_aligned",
         })
 

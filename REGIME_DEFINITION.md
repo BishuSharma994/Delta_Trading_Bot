@@ -1,128 +1,58 @@
-# REGIME_DEFINITION.md
-Delta Trading Bot — Market Regime Taxonomy (V3.0)
+Version: V5.1 | Status: IMPLEMENTED REGIME TAXONOMY | Last Updated: 2026-04-22
 
-Status: DESIGN-ONLY  
-Authority: ASSOCIATE ANALYST  
-Bound By: PROJECT_GOVERNANCE.md, V3_ASSOCIATE_ANALYST_SPEC.md  
-Last Defined: 2026-02-06
+# Regime Definition
 
----
+Market regimes provide descriptive context for the observer and analyst layers. They are not direct trade triggers. A regime can allow trading context, block trading context, or simply describe the environment around a separate signal.
 
-## 1. PURPOSE
+## Regime Table
 
-This document defines the **only valid market regimes** recognized by the
-Associate Analyst (V3.0).
+| Regime | Characteristics | Bot Behavior |
+| --- | --- | --- |
+| `VOLATILITY_COMPRESSION` | Tight range, low realized volatility, signal scarcity | Allowed context |
+| `VOLATILITY_EXPANSION` | Large candles, range expansion, unstable follow-through | Always abstain |
+| `TREND_UP` | Higher highs, higher lows, directional consistency | Allowed context |
+| `TREND_DOWN` | Lower highs, lower lows, directional consistency | Allowed context |
+| `RANGE` | Mean reversion, low directional persistence, rotational price action | Allowed context |
+| `TRANSITION` | Ambiguous structure, regime disagreement, feature instability | Always abstain |
 
-Regimes provide **context**, not signals.
-They do not trigger actions, change votes, or influence execution.
+## Regime Notes
 
----
+### VOLATILITY_COMPRESSION
 
-## 2. CORE PRINCIPLES
+- Often precedes breakout attempts.
+- Compatible with V5.1 directional setups.
+- Does not create an entry by itself.
 
-- Regimes are descriptive, not predictive
-- Regimes are mutually exclusive at a timestamp
-- Uncertainty is an explicit state
-- No regime implies tradability
-- Regimes do not change system behavior
+### VOLATILITY_EXPANSION
 
----
+- Represents unstable expansion conditions.
+- V5.1 governance treats this regime as non-tradable.
+- Any setup in this regime must resolve to `ABSTAIN`.
 
-## 3. CANONICAL REGIME SET (V3.0)
+### TREND_UP
 
-### 3.1 TREND_UP
-Market exhibits sustained directional movement upward.
+- Directional bias is persistent.
+- Long continuation contexts can remain valid if other gates pass.
+- Still requires vote agreement and confidence.
 
-Characteristics:
-- Higher highs and higher lows
-- Directional bias consistency
-- Expanding or stable volatility
+### TREND_DOWN
 
----
+- Directional bias is persistent to the downside.
+- Short continuation contexts can remain valid if other gates pass.
+- Still requires vote agreement and confidence.
 
-### 3.2 TREND_DOWN
-Market exhibits sustained directional movement downward.
+### RANGE
 
-Characteristics:
-- Lower highs and lower lows
-- Directional bias consistency
-- Expanding or stable volatility
+- Price is mean-reverting and direction is less persistent.
+- Signals can still be observed but need clean alignment and risk filters.
+- Range alone does not imply no-trade.
 
----
+### TRANSITION
 
-### 3.3 RANGE
-Market oscillates within bounded price levels.
+- Mixed evidence and unstable context.
+- Treated as non-tradable in V5.1.
+- Any setup in this regime must resolve to `ABSTAIN`.
 
-Characteristics:
-- Mean reversion behavior
-- Low directional persistence
-- Contracting volatility
+## Governance Constraint
 
----
-
-### 3.4 VOLATILITY_EXPANSION
-Market volatility increasing rapidly.
-
-Characteristics:
-- Range expansion
-- Large candles or wicks
-- Increased disagreement across strategies
-
----
-
-### 3.5 VOLATILITY_COMPRESSION
-Market volatility decreasing.
-
-Characteristics:
-- Tight ranges
-- Low realized volatility
-- Signal scarcity
-
----
-
-### 3.6 TRANSITION
-Market state is changing or ambiguous.
-
-Characteristics:
-- Regime disagreement
-- Feature instability
-- Low classification confidence
-
-This regime is **explicitly valid** and preferred over forced classification.
-
----
-
-## 4. REGIME CONFIDENCE
-
-Each regime label must include a confidence score in `[0,1]`.
-
-Low confidence implies:
-- High uncertainty
-- Reduced interpretability
-- No behavioral implication
-
----
-
-## 5. FORBIDDEN USES
-
-Regimes must NEVER:
-- Trigger trades
-- Override strategies
-- Modify execution gate behavior
-- Adjust confidence scores
-- Be optimized for performance
-
----
-
-## 6. EXTENSIBILITY RULE
-
-New regimes may only be added by:
-- Documentation update
-- Explicit versioning
-- Offline validation
-
-No silent expansion is allowed.
-
----
-
-END OF REGIME_DEFINITION
+Regimes are descriptive context only. They do not directly trigger entries, size positions, or override risk rules.

@@ -1,67 +1,54 @@
-# V4 — Hypotheses Specification
-Senior Analyst Layer (Design Only)
+Version: V5.1 | Status: ACTIVE RESEARCH HYPOTHESES | Last Updated: 2026-04-22
 
-Status: DESIGN — NO IMPLEMENTATION
+# V4 Hypotheses
 
----
+Hypotheses remain research statements. They do not automatically authorize execution and they can fail.
 
-## PURPOSE
+## HYP-001
 
-This document defines how hypotheses are formed, tested, and invalidated.
-A hypothesis is a **research statement**, not a trading rule.
+| Field | Value |
+| --- | --- |
+| ID | `HYP-001` |
+| Statement | When funding rate is extreme and volatility compresses, breakouts become more probable |
+| Preconditions | Extreme funding, volatility compression, valid directional agreement, trade occurs inside the V5.1 execution gates |
+| Null hypothesis | Breakouts under this setup are random and do not produce positive expectancy |
+| Failure conditions | Negative expectancy, unstable reward/risk, regime dependence that disappears out of sample, or results collapsing under stress |
+| Evidence required | Paper-trade expectancy, exit-quality distribution, repeatability across tracked symbols, stress survival |
+| Expected rarity | Rare |
 
-Hypotheses exist to answer:
-- Under what conditions does market behavior change?
-- When do signals become *less unreliable* (not profitable)?
-- What evidence must align before attention is warranted?
+## Status
 
----
+| Status | Interpretation |
+| --- | --- |
+| Partially confirmed | Positive expectancy observed, but evidence base is still limited |
 
-## HYPOTHESIS STRUCTURE (MANDATORY)
+## What The Data Shows
 
-Each hypothesis MUST define:
+Apr 17-21 2026 paper-trade data:
 
-1. Hypothesis ID
-2. Statement
-3. Preconditions
-4. Observation Window
-5. Null Hypothesis
-6. Failure Conditions
-7. Required Evidence
-8. Expected Rarity
+| Metric | Value |
+| --- | --- |
+| Win rate | 47.7% |
+| Reward/Risk | 1.82:1 |
+| Total PnL | +2.16% |
+| Expectancy | Positive |
 
----
+Interpretation:
 
-## EXAMPLE (NON-OPERATIONAL)
+- Win rate alone is below 50%.
+- Reward/risk is strong enough to keep the system net profitable.
+- The setup is promising, not proven.
 
-**ID:** HYP-001  
-**Statement:**  
-When funding rate is extreme AND volatility compresses over multiple windows, breakouts become more probable.
+## Null Hypothesis Status
 
-**Preconditions:**
-- funding_rate_abs = hot
-- pre_volatility_5m = hot but declining
-- persistence >= N windows
+The null hypothesis is weakened but not rejected. More data is required before promoting HYP-001 from partial confirmation to stronger support.
 
-**Null Hypothesis:**  
-Breakouts occur at random frequency regardless of funding/volatility interaction.
+## Governance Rules
 
-**Failure Conditions:**
-- Breakouts do not exceed baseline frequency
-- Results disappear under time randomization
+| Rule | Meaning |
+| --- | --- |
+| Hypotheses can fail | Failure is valid and must be recorded |
+| No automatic promotion | Positive results do not self-authorize live deployment |
+| Research is descriptive | Hypothesis status informs review, not execution |
 
-**Expected Rarity:**  
-Very high (exceptional market state)
-
----
-
-## GOVERNANCE RULES
-
-- Hypotheses are allowed to FAIL
-- No hypothesis is ever promoted automatically
-- Hypotheses do NOT map to execution
-- All results must be reproducible offline
-
----
-
-END OF DOCUMENT
+See `PROJECT_STATE.md` for full performance data.

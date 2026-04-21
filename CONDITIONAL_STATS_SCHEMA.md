@@ -1,93 +1,76 @@
-# CONDITIONAL_STATS_SCHEMA.md
-Delta Trading Bot — Conditional Statistics Schema (V3.0)
+Version: V5.1 | Status: IMPLEMENTED DESCRIPTIVE METRICS | Last Updated: 2026-04-22
 
-Status: DESIGN-ONLY  
-Authority: ASSOCIATE ANALYST  
-Bound By: PROJECT_GOVERNANCE.md, V3_ASSOCIATE_ANALYST_SPEC.md  
-Last Defined: 2026-02-06
+# Conditional Stats Schema
 
----
+Conditional statistics in V5.1 are descriptive only. They inform review, debugging, and governance decisions, but they do not directly trigger execution.
 
-## 1. PURPOSE (LOCKED)
+## Purpose
 
-Defines the ONLY conditional statistics allowed in V3.0.
+Allowed conditional statistics summarize how the paper-trading system behaves under different trade types, exits, and contexts.
 
-All statistics are:
-- Descriptive
-- Retrospective
-- Non-actionable
+## Conditioning Axes
 
-No statistic may influence live behavior.
+| Axis | Allowed |
+| --- | --- |
+| Regime | Yes |
+| Time window | Yes |
+| Strategy identity | Yes |
+| Vote direction | Yes |
+| Confidence bucket | Yes |
+| Trade type | Yes |
+| Exit reason | Yes |
 
----
+## Allowed Metrics
 
-## 2. CONDITIONING AXES (EXHAUSTIVE)
+| Metric family | Examples |
+| --- | --- |
+| Frequency | Trade count, abstention count, exit count |
+| Outcome | Win rate, loss rate, average PnL |
+| Quality | Average win, average loss, reward/risk |
+| Distribution | Exit-reason mix, trade-type mix |
 
-Allowed conditioning ONLY on:
-- Market regime
-- Time window
-- Strategy identity
-- Vote bias (long / short / neutral)
-- Confidence buckets
+## V5.1 Live Metrics
 
-Anything else is forbidden.
+These are now measured from real paper-trading output, not design-only estimates.
 
----
+### Win Rate By Trade Type
 
-## 3. ALLOWED METRICS
+| Trade type | Trades | Win rate | Average PnL |
+| --- | --- | --- | --- |
+| FUNDING | 20 | 45% | +0.10% |
+| VOL | 24 | 50% | +0.007% |
 
-Frequency:
-- Vote frequency by regime
-- Abstention rate by regime
-- Confluence rate
+### Average PnL By Exit Reason
 
-Distribution:
-- Confidence distributions
-- Persistence length distributions
+| Exit reason | Average PnL |
+| --- | --- |
+| `timeout` | +0.014% |
+| `funding_time` | Not separately specified in current ground truth |
+| `take_profit` | Positive by definition in current sample |
+| `hard_stop` | Negative by definition in current sample |
+| `funding_stop` | Negative by definition in current sample |
 
-Temporal:
-- Time since last similar pattern
-- Duration in regime
-- Regime transition frequency
+### Exit Reason Outcome View
 
----
+| Exit reason | Count | Win rate |
+| --- | --- | --- |
+| `timeout` | 22 | 50% |
+| `funding_time` | 19 | 47% |
+| `take_profit` | 1 | 100% |
+| `hard_stop` | 1 | 0% |
+| `funding_stop` | 1 | 0% |
 
-## 4. CANONICAL OUTPUT SCHEMA
+### Abstention Tracking
 
-{
-  "metric_name": "abstention_rate",
-  "regime": "range",
-  "value": 0.82,
-  "sample_size": 1243,
-  "window": "30d",
-  "computed_at": "YYYY-MM-DDTHH:MM:SSZ"
-}
+Abstention and exit are different event classes. An "abstention rate by exit reason" is not applicable because exit reasons exist only after a trade is entered and closed.
 
----
+| Requested view | V5.1 status |
+| --- | --- |
+| Abstention rate by exit reason | Not applicable |
+| Abstention rate by reason | Allowed, not yet populated in current state |
+| Abstention rate by regime | Allowed, not yet populated in current state |
+| Abstention rate by confidence gate | Allowed, not yet populated in current state |
 
-## 5. HARD CONSTRAINTS
+## Governance Rule
 
-Statistics must NEVER:
-- Trigger actions
-- Modify votes
-- Adjust gate logic
-- Rank opportunities
-- Feed decision layers
-
----
-
-## 6. STORAGE RULES
-
-- Logged
-- Reproducible
-- No hidden state
-
----
-
-## 7. EXIT CRITERIA
-
-Schema is complete when stable and exhaustive.
-
----
-
-END OF CONDITIONAL_STATS_SCHEMA
+Conditional statistics are descriptive only. They support diagnosis and review but must not directly trigger entries, exits, or kill-switch actions.

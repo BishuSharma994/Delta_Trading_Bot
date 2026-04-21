@@ -1,47 +1,49 @@
-# V4 — Confidence Calibration Framework
-Senior Analyst Layer (Design Only)
+Version: V5.1 | Status: IMPLEMENTED CONFIDENCE MODEL | Last Updated: 2026-04-22
 
-Status: DESIGN — NO IMPLEMENTATION
+# V4 Confidence Calibration
 
----
+The V4 confidence layer is active in V5.1 through `core/alignment_evaluator.py`.
 
-## PURPOSE
+## Why V5.1 Changed It
 
-To measure whether **confidence is justified** over time.
+| Item | Old behavior | V5.1 behavior |
+| --- | --- | --- |
+| Threshold | `0.30` | `0.65` |
+| Confidence source | Hardcoded | Computed from live evidence |
+| Funding window | 3600 seconds | 900 seconds |
+| Vote comparison | Raw string comparison | Direction-normalized comparison |
 
-Confidence must be:
-- Rare
-- Earned
-- Penalized when wrong
-- Decayed over time
+The old `0.30` threshold was too permissive and wrong for live gating. V5.1 raises the standard and requires confidence to be earned from observable market evidence.
 
----
+## Formula
 
-## CALIBRATION PRINCIPLES
+```text
+computed_confidence = (vol_confidence + funding_confidence) / 2
+```
 
-1. Confidence ≠ correctness
-2. High confidence events must be rare
-3. Overconfidence is a system failure
-4. Underconfidence is acceptable early
+## Inputs
 
----
+| Input | Source | Definition |
+| --- | --- | --- |
+| `vol_confidence` | `strategy_votes.jsonl` | Float from the volatility strategy in `[0.0, 1.0]` |
+| `funding_confidence` | `funding_snapshot.jsonl` | `min(funding_rate_abs * 25, 0.60)` |
 
-## MEASUREMENTS (DESIGN)
+## Calibration Principles
 
-- Confidence vs. Outcome Distribution
-- Overconfidence Detection Rate
-- Confidence Decay Curves
-- Strategy Confidence Drift
+| Principle | Meaning |
+| --- | --- |
+| Confidence must be earned | No hardcoded execution confidence |
+| Confidence should be rare | High-confidence states should not be common |
+| Confidence must be penalized when wrong | Overconfidence is a model defect |
 
----
+## Gate Behavior
 
-## GOVERNANCE RULES
+| Condition | Result |
+| --- | --- |
+| `computed_confidence < 0.50` | `ABSTAIN` with `confidence_below_threshold` |
+| `0.50 <= computed_confidence < 0.65` | `ABSTAIN` because entry minimum is not met |
+| `computed_confidence >= 0.65` and all other gates pass | Eligible for `ALIGNED` |
 
-- Confidence never increases without evidence
-- Confidence penalties persist
-- Calibration is offline only
-- No confidence directly enables execution
+## Operational Consequence
 
----
-
-END OF DOCUMENT
+Confidence is no longer a constant. It is recomputed from live strategy output and live funding intensity on every evaluation cycle.

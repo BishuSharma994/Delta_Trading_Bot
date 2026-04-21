@@ -1,56 +1,42 @@
-# V4 — Scenario Taxonomy
-Senior Analyst Layer (Design Only)
+Version: V5.1 | Status: IMPLEMENTED SCENARIO TAXONOMY | Last Updated: 2026-04-22
 
-Status: DESIGN — NO IMPLEMENTATION
+# V4 Scenarios
 
----
+Scenarios describe recurring execution contexts that the analyst layer can recognize. They do not bypass governance or risk gates.
 
-## PURPOSE
+## SCENARIO-001: Funding Extreme + Volatility Compression
 
-Scenarios group **market contexts**, not actions.
-They describe *where the market is*, not *what to do*.
+| Field | Definition |
+| --- | --- |
+| Scenario ID | `SCENARIO-001` |
+| Core idea | Funding is extreme and volatility is compressed before a directional move |
+| Direction rule | Funding and volatility votes must agree on `LONG` or `SHORT` |
+| Timing rule | Entry must occur within 15 minutes of funding settlement |
+| Confidence rule | Computed confidence must be at least `0.65` |
+| Regime context | Best aligned with `VOLATILITY_COMPRESSION`, can coexist with `TREND_UP`, `TREND_DOWN`, or `RANGE` |
+| Blockers | `VOLATILITY_EXPANSION`, `TRANSITION`, confidence below threshold, spread above max, funding window violation |
+| Expected frequency | Rare |
+| Known failure modes | False breakouts, underpowered funding move, profitable timeouts that fail to reach full target |
 
----
+## SCENARIO-002: OB Retest Breakout/Breakdown Confirmed
 
-## SCENARIO DEFINITION
+| Field | Definition |
+| --- | --- |
+| Scenario ID | `SCENARIO-002` |
+| Core idea | Order-block retest confirms continuation after a breakout or breakdown |
+| Signal rule | `breakout_confirmed` directional signal from the volatility layer |
+| Confidence rule | Computed confidence must be at least `0.65` |
+| Regime context | Allowed in `VOLATILITY_COMPRESSION`, `TREND_UP`, `TREND_DOWN`, or `RANGE` |
+| Blockers | `VOLATILITY_EXPANSION`, `TRANSITION`, confidence below threshold, spread above max, daily caps, kill switch |
+| Expected frequency | Low to moderate |
+| Known failure modes | Retest failure, momentum collapse after confirmation, structure break, trailing stop before full target |
 
-Each scenario contains:
+## Scenario Governance
 
-1. Scenario Name
-2. Regime Label(s)
-3. Feature State Profile
-4. Historical Frequency
-5. Known Failure Modes
-6. Risk Flags
+| Rule | Meaning |
+| --- | --- |
+| Both scenarios require vote agreement | No split-direction entries |
+| Both scenarios require computed confidence | No hardcoded confidence |
+| Scenarios are contextual only | They do not override risk or kill-switch rules |
 
----
-
-## EXAMPLE SCENARIOS
-
-### Scenario: Crowded Long + Volatility Compression
-- Funding: Elevated
-- Volatility: Compressing
-- Regime: Range → Expansion risk
-- Frequency: Rare
-- Risk: Violent liquidation cascades
-
----
-
-### Scenario: Post-Trend Funding Normalization
-- Funding: Normalizing
-- Volatility: Elevated
-- Regime: Trend exhaustion
-- Risk: False continuation signals
-
----
-
-## RULES
-
-- Scenarios do NOT generate signals
-- Scenarios do NOT suggest trades
-- Scenarios may overlap
-- Scenarios exist to guide *attention*, not action
-
----
-
-END OF DOCUMENT
+See `PROJECT_STATE.md` for full performance data.

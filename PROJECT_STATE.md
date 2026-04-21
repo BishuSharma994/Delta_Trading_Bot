@@ -1,174 +1,184 @@
-# Delta Trading Bot — PROJECT STATE (AUTHORITATIVE)
+Version: V5.1 | Status: AUTHORITATIVE PROJECT STATE | Last Updated: 2026-04-22
 
-Last Updated: 2026-02-07  
-Current Locked Version: V4_IMPLEMENT_COMPLETE  
-Execution Authority: NONE (PERMANENTLY GATED)
+# Project State
 
----
+## System Summary
 
-## SYSTEM SUMMARY
+Delta Trading Bot is a Python paper-trading bot for Delta Exchange India perpetual futures. It runs on a DigitalOcean VPS and currently trades no live capital. The active validation mode is a 72-hour paper-trading window before any live deployment decision.
 
-The Delta Trading Bot is an institutional-grade market intelligence and research system.
+Covered symbols:
 
-It observes, analyzes, stress-tests, and falsifies market hypotheses.
-It does not trade.
-It cannot trade.
-It is safe to run unattended.
+- `BTCUSD`
+- `ETHUSD`
+- `SOLUSD`
+- `BNBUSD`
 
----
+## Current Operating Mode
 
-## COMPLETED PHASES (LOCKED)
+| Field | Value |
+| --- | --- |
+| Version | V5.1 |
+| Exchange | Delta Exchange India |
+| Market | Perpetual Futures |
+| Hosting | DigitalOcean VPS |
+| Runtime mode | Paper trading |
+| Validation window | 72 hours |
+| Live deployment status | Blocked pending target metrics |
 
-### V2.x — Junior Analyst
-- Live market observation (read-only)
-- Feature extraction
-- Conservative strategy voting
-- Aggressive abstention
-- Full event persistence
+## Version History
 
-### V3.x — Associate Analyst
-- Abstention analysis
-- Persistence analysis
-- Rarity analysis
-- Multi-symbol observation (BTC, ETH, BNB, SOL)
+| Version | Layer | Summary |
+| --- | --- | --- |
+| V2 | Observer | Live observation loop and raw market collection |
+| V3 | Associate Analyst | Regime classification and descriptive context |
+| V4 | Senior Research | Hypotheses, scenarios, stress framework, confidence research |
+| V5.0 | Dry-run execution | Paper-trade execution path with governance and exits |
+| V5.1 | Live-ready paper validation | Risk and alignment fixes applied to production paper loop |
 
-### V4 — Senior Research Layer (COMPLETE)
-- Hypothesis Runner (offline)
-- Scenario Tagger (offline)
-- Confidence Calibration Engine (offline)
-- Integrated Stress Harness (offline)
+## What V5.1 Changed From V5.0
 
-All V4 modules:
-- Are read-only
-- Are offline
-- Are falsification-first
-- Produce no signals
-- Produce no execution intent
+| File | V5.0 | V5.1 |
+| --- | --- | --- |
+| `core/alignment_evaluator.py` | `CONFIDENCE_THRESHOLD = 0.30` | `CONFIDENCE_THRESHOLD = 0.65` |
+| `core/alignment_evaluator.py` | `MAX_FUNDING_WINDOW_SEC = 3600` | `MAX_FUNDING_WINDOW_SEC = 900` |
+| `core/alignment_evaluator.py` | Confidence hardcoded | Confidence computed from live evidence |
+| `core/alignment_evaluator.py` | Raw vote string comparison | Direction-normalized comparison |
+| `config/risk.py` | `max_daily_trades_per_symbol = 3` | `2` |
+| `config/risk.py` | `max_daily_loss_pct = 0.012` | `0.010` |
+| `config/risk.py` | `vol_timeout_sec = 15 * 60` | `45 * 60` |
+| `config/risk.py` | `max_bid_ask_spread_pct = 0.0020` | `0.0008` |
+| `config/risk.py` | `funding_entry_window_sec = 120` | `900` |
+| `config/risk.py` | `min_vol_confidence = 0.55` | `0.65` |
+| `config/risk.py` | `funding_blackout_for_vol_sec = 180` | `1800` |
+| `config/risk.py` | `vol_trailing_stop_pct = 0.0040` | `0.0025` |
+| `core/state_engine.py` | No portfolio circuit breaker | 3% daily portfolio circuit breaker |
+| `core/state_engine.py` | No post-loss symbol halt | 1-hour cooldown after 3 consecutive losses |
+| `app/strategy/exit_manager.py` | Trailing stop activated too early | Activates only after +0.10% profit |
+| `app/strategy/exit_manager.py` | Timeout exited profitable trades | Profitable timeout now switches to trailing mode |
+| `v5/runtime/kill_switch.py` | Incomplete | Implemented, auto-arm capable, fail-safe on missing config |
 
----
+## Architecture In Execution Order
 
-## KEY FINDINGS (LOCKED)
+1. `observer.py`
+2. `core/feature_pipeline.py`
+3. `strategies/funding_bias.py`
+4. `strategies/volatility_regime.py`
+5. `core/alignment_evaluator.py`
+6. `core/evaluator.py`
+7. `core/state_engine.py`
+8. `app/strategy/exit_manager.py`
+9. `v5/runtime/kill_switch.py`
 
-- Market opportunity states are extremely rare
-- Hypotheses must survive multiple stress dimensions
-- Volatility compression is a stronger discriminator than funding alone
-- Confidence inflation is fully suppressed
-- Abstention bias is preserved by design
+## Confidence Model
 
----
+Confidence is now computed live and is never hardcoded.
 
-## CURRENT MODE
+| Component | Source | Formula |
+| --- | --- | --- |
+| `vol_confidence` | `strategy_votes.jsonl` | Strategy-provided float in `[0.0, 1.0]` |
+| `funding_confidence` | `funding_snapshot.jsonl` | `min(funding_rate_abs * 25, 0.60)` |
+| `computed_confidence` | Alignment evaluator | `(vol_confidence + funding_confidence) / 2` |
 
-- Observation: ACTIVE
-- Research: ACTIVE
-- Execution: IMPOSSIBLE
+Entry gate:
 
----
+- If `computed_confidence < 0.50`: `ABSTAIN`
+- If `computed_confidence < 0.65`: `ABSTAIN`
+- If votes disagree: `ABSTAIN`
+- If funding window is above 900 seconds: `ABSTAIN`
 
----
+## Risk State
 
-## V5 — EXECUTION APPLIANCE (GOVERNED, DRY-RUN)
+| Rule | V5.1 Value |
+| --- | --- |
+| Risk per trade | 1% of capital |
+| Portfolio breaker | -3% daily realized return |
+| Per-symbol cooldown | 1 hour after 3 consecutive losses |
+| Max trades per symbol per day | 2 |
+| Funding entry window | 900 seconds |
+| Max spread | 0.0008 |
+| Vol trailing stop activation | +0.10% profit |
+| Vol timeout | 45 minutes |
+| Minimum R:R | 1.5:1 |
 
-### STATUS
-- Repository: SAME (Delta_Trading_Bot)
-- Mode: DRY-RUN ONLY
-- Execution: DISABLED (NO EXCHANGE CALLS)
-- Capital Exposure: ZERO
-- Default State: DISARMED
+## Hypothesis Status
 
----
+Primary tracked hypothesis:
 
-### PURPOSE
+| ID | Statement | Status |
+| --- | --- | --- |
+| HYP-001 | When funding rate is extreme and volatility compresses, breakouts become more probable | Partially confirmed |
 
-V5 is **not a trading system**.
+Interpretation:
 
-V5 is a **governed execution appliance** whose sole role is to:
-- Consume **locked V4 research artifacts**
-- Enforce institutional risk doctrine
-- Determine whether execution would be permitted
-- Emit **dry-run order intents only** for audit and review
+- Paper data shows positive expectancy.
+- Win rate is below 50%.
+- Reward/risk is strong enough to keep the system net profitable.
+- The null hypothesis is weakened, not rejected.
 
-V5 does **not**:
-- Generate strategies
-- Modify hypotheses
-- Optimize parameters
-- Learn online
-- Trade autonomously
+## Paper Trade Performance
 
----
+Validation window covered: Apr 17-21 2026
 
-### ARCHITECTURE (V5)
+### Headline Results
 
-#### Senior Analyst (Alignment Layer)
-- Consumes:
-  - Volatility regime output
-  - Funding bias output
-  - Evidence artifacts (hypothesis ID, rarity, concurrence, calibration)
-- Enforces:
-  - Volatility + funding concurrence
-  - Timing window constraints
-  - Confidence validity
-- Default outcome: ABSTAIN
+| Metric | Value |
+| --- | --- |
+| Closed trades | 44 |
+| Wins | 21 |
+| Losses | 23 |
+| Win rate | 47.7% |
+| Total PnL | +2.16% |
+| Average win | +0.2596% |
+| Average loss | -0.1430% |
+| Reward/Risk | 1.82:1 |
 
-#### Execution Runtime (Gated)
-Execution is allowed **only if all gates pass**:
+### Exit Breakdown
 
-1. Evidence Contract (V4 artifacts present and fresh)
-2. Written Human Authorization (explicit, dated, revocable)
-3. Governance Arming (manual, config-based)
-4. Kill-Switch Clearance
-5. Alignment State = ALIGNED
+| Exit reason | Count | Notes |
+| --- | --- | --- |
+| `timeout` | 22 | Main failure mode in V5.0 |
+| `funding_time` | 19 | Normal funding lifecycle exit |
+| `take_profit` | 1 | Too rare; target must increase post-fix |
+| `hard_stop` | 1 | Controlled hard loss |
+| `funding_stop` | 1 | Funding stop loss |
 
-Failure of any gate → **NO ACTION**
+### Exit Reason Win Rates
 
----
+| Exit reason | Win rate |
+| --- | --- |
+| `funding_stop` | 0% |
+| `funding_time` | 47% |
+| `hard_stop` | 0% |
+| `take_profit` | 100% |
+| `timeout` | 50% |
 
-### EXECUTION GUARANTEES
+### Trade Type Breakdown
 
-- No spot trading
-- No scaling in
-- No averaging down
-- No revenge trades
-- Single lifecycle only:
-  FLAT → ENTER → EXIT → FLAT
-- Immediate disarm on violation
+| Trade type | Trades | Win rate | Average PnL |
+| --- | --- | --- | --- |
+| FUNDING | 20 | 45% | +0.10% |
+| VOL | 24 | 50% | +0.007% |
 
----
+### Timeout Failure Analysis
 
-### AUDIT & GOVERNANCE
+| Metric | Value |
+| --- | --- |
+| Timeout exits | 22 of 44 |
+| Timeout winners | 11 |
+| Avg PnL of profitable timeouts | +0.13% |
+| V5.1 fix | Suppress timeout if profitable and switch to trailing stop mode |
 
-- All gate decisions are logged
-- Logs are append-only
-- Runtime data is not version-controlled
-- Human review is mandatory before any live execution consideration
+## What Happens Next
 
----
+The bot remains in paper mode until the next 72-hour validation window completes. Go-live is permitted only if all criteria below pass.
 
-### CURRENT V5 MODE
+| Go-live criterion | Required value |
+| --- | --- |
+| Win rate | Greater than 50% |
+| Take-profit frequency | More than 5 per 44 trades |
+| Timeout exits | Fewer than 12 per 44 trades |
+| Average win size | Greater than 0.40% |
+| Total PnL | Greater than 4% |
+| Circuit breaker triggers | Zero |
 
-- Observer: RUNNING
-- Alignment Evaluation: ACTIVE
-- Authorization: PRESENT (DRY-RUN SCOPE)
-- Governance: ARMED (DRY-RUN ONLY)
-- Intent Emission: ENABLED (DRY-RUN)
-- Live Execution: IMPOSSIBLE
-
----
-
-### IMPORTANT CONSTRAINT
-
-V5 **does not violate** the original project guarantee:
-
-> “It does not trade.  
-> It cannot trade.  
-> It is safe to run unattended.”
-
-This remains true.
-
-Any transition from dry-run to live execution:
-- Requires explicit redesign
-- Requires separate authorization
-- Requires separate approval
-- Is NOT permitted by default
-
-END OF STATE
+If any condition fails, the system remains in paper mode and another revision cycle is required.

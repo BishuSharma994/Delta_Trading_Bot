@@ -1,95 +1,65 @@
-# V4_SENIOR_ANALYST_SPEC.md
-Delta Trading Bot — Senior Analyst Layer (V4.0)
+Version: V5.1 | Status: IMPLEMENTED ALIGNMENT LAYER | Last Updated: 2026-04-22
 
-Status: DESIGN-ONLY  
-Authority: ANALYST (NO EXECUTION)  
-Bound By: PROJECT_GOVERNANCE.md  
-Depends On: V2.x (Junior Analyst), V3.0 (Associate Analyst)  
-Last Defined: 2026-02-06
+# V4 Senior Analyst Spec
 
----
+The Senior Analyst role in V5.1 is the live alignment layer implemented by `core/alignment_evaluator.py`.
 
-## 1. PURPOSE (LOCKED)
+## Role
 
-V4.0 introduces hypothesis-driven market research and scenario analysis.
+The Senior Analyst does not generate a strategy vote. It validates whether the two existing strategy votes are aligned strongly enough to permit execution review.
 
-The goal is to explain WHY certain outcomes occur under specific contexts,
-without altering system behavior or enabling execution.
+## Inputs
 
----
+| Input | Source |
+| --- | --- |
+| Volatility vote | `strategies/volatility_regime.py` |
+| Funding vote | `strategies/funding_bias.py` |
+| `time_to_funding_sec` | Feature pipeline and funding snapshot |
+| `funding_rate_abs` | Feature pipeline and funding snapshot |
 
-## 2. WHAT V4.0 ADDS
+## Enforcement Rules
 
-- Explicit, testable hypotheses
-- Scenario definitions (context bundles)
-- Evidence aggregation
-- False-positive suppression analysis
-- Confidence calibration measurement
+| Rule | Requirement |
+| --- | --- |
+| Directional agreement | Both votes must resolve to the same direction |
+| Confidence | Computed confidence must be at least `0.65` |
+| Funding window | `time_to_funding_sec <= 900` |
+| Output states | `ALIGNED` or `ABSTAIN` |
 
-All additions are descriptive and offline.
+## Confidence Computation
 
----
+```text
+vol_confidence = strategy vote confidence
+funding_confidence = min(funding_rate_abs * 25, 0.60)
+computed_confidence = (vol_confidence + funding_confidence) / 2
+```
 
-## 3. WHAT V4.0 EXPLICITLY DOES NOT DO
+## Output Contract
 
-V4.0 must NEVER:
-- Place trades
-- Recommend actions
-- Size positions
-- Adjust execution gate parameters
-- Reweight strategies
-- Introduce learning loops
-- Optimize for performance
+| Field | Meaning |
+| --- | --- |
+| `alignment_state` | `ALIGNED` or `ABSTAIN` |
+| `direction` | Normalized `LONG` or `SHORT` when aligned |
+| `confidence` | Live computed confidence |
+| `reason` | Explicit abstain or aligned reason |
 
----
+## V5.1 Fixes Applied
 
-## 4. HYPOTHESIS MODEL
+| Area | V5.1 fix |
+| --- | --- |
+| Confidence threshold | Raised from `0.30` to `0.65` |
+| Confidence source | Removed hardcoded constant and replaced with computed value |
+| Direction comparison | Fixed mismatched raw-string comparison |
+| Funding window | Tightened from `3600` to `900` seconds |
 
-A hypothesis is a falsifiable statement evaluated offline.
+## Data Flow
 
-Example:
-IF regime = range AND rarity_score > 0.9  
-THEN confluence frequency increases
+```text
+FundingBias vote ----\
+                      -> alignment_evaluator.py -> ALIGNED or ABSTAIN
+Volatility vote -----/
+Funding snapshot ----/
+Feature data --------/
+```
 
-Hypotheses must be:
-- Explicit
-- Logged
-- Versioned
-- Evaluated descriptively
-
----
-
-## 5. SCENARIO MODEL
-
-A scenario is a contextual lens combining:
-- Market regime
-- Volatility state
-- Rarity bucket
-- Time-of-day or session
-
-Scenarios provide explanation, not triggers.
-
----
-
-## 6. EVIDENCE OUTPUTS
-
-Allowed outputs:
-- Support vs refute counts
-- Context distributions
-- Confidence drift over time
-
-No thresholds. No rankings. No decisions.
-
----
-
-## 7. EXIT CRITERIA
-
-V4.0 design is complete when:
-- Hypothesis schema is frozen
-- Scenario taxonomy is stable
-- Outputs are reproducible
-- Authority boundaries remain intact
-
----
-
-END OF V4_SENIOR_ANALYST_SPEC
+The Senior Analyst is a gate, not a signal source.

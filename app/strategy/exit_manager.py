@@ -5,6 +5,7 @@ from app.strategy.post_entry_validation import (
 )
 from app.strategy.regime_filter import evaluate_regime_filter
 from Delta_Trading_Bot.data.memory import get_recent_candles
+from config.risk import RISK
 
 
 def _coerce_float(value):
@@ -68,6 +69,39 @@ def build_legacy_vol_context(
     context["validation_remaining"] = 0
     context["validation_passed"] = True
     return context
+
+
+def get_vol_trailing_stop(state) -> float | None:
+    current_pnl_pct = _favorable_move(
+        state.side,
+        float(state.entry_price),
+        float(state.peak_price if state.side == "LONG" else state.trough_price),
+    )
+    if current_pnl_pct < 0.0010:
+        return None
+
+    # trailing stop activates only after +0.10% profit (prevents premature stop-out)
+    if state.side == "LONG":
+        return float(state.peak_price) * (1 - RISK.vol_trailing_stop_pct)
+    return float(state.trough_price) * (1 + RISK.vol_trailing_stop_pct)
+
+
+def handle_vol_timeout(state, current_pnl_pct: float, log_func=print) -> bool:
+    if current_pnl_pct > 0.0010:
+        if not isinstance(state.vol_context, dict):
+            state.vol_context = {}
+
+        state.vol_context["timeout_trailing_mode"] = True
+        state.vol_context["timeout_trailing_stop"] = (
+            float(state.entry_price) * 1.0005
+            if state.side == "LONG"
+            else float(state.entry_price) * 0.9995
+        )
+        log_func("timeout suppressed — trade profitable, switching to trailing stop mode")
+        # timeout suppressed for profitable trades — let winners run
+        return False
+
+    return True
 
 
 def _structure_break(state, candles: list[dict], asset_rules: AssetRules) -> bool:

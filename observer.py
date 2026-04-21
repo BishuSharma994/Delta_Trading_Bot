@@ -43,6 +43,7 @@ from core.state_engine import StateEngine
 from utils.io import write_event
 from strategies.funding_bias import FundingBiasStrategy
 from strategies.volatility_regime import VolatilityRegimeStrategy
+from v5.runtime.kill_switch import enforce, check_auto_arm
 
 # =========================
 # CONFIG
@@ -120,6 +121,10 @@ def main():
     logging.info("PERPETUAL SYMBOL MAP LOADED: %s", SYMBOLS)
 
     while True:
+        if enforce(state_engine=state_engine):
+            time.sleep(LOOP_INTERVAL_SECONDS)
+            continue
+
         loop_start = datetime.now(timezone.utc)
 
         for symbol, product_id in SYMBOLS.items():
@@ -210,6 +215,10 @@ def main():
             except Exception:
                 logging.exception("SYMBOL ERROR | %s", symbol)
                 continue
+
+        total_daily_pnl = sum(s.daily_realized_return for s in state_engine.symbols.values())
+        if check_auto_arm(total_daily_pnl, consecutive_losses=0, api_error_count=0):
+            continue
 
         logging.info("HEARTBEAT | loop_complete")
         time.sleep(LOOP_INTERVAL_SECONDS)

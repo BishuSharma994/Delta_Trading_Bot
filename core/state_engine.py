@@ -4,7 +4,12 @@ import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from app.strategy.exit_manager import build_vol_entry_context, evaluate_vol_exit
+from app.strategy.exit_manager import (
+    build_vol_entry_context,
+    evaluate_vol_exit,
+    get_vol_trailing_stop,
+    handle_vol_timeout,
+)
 from app.strategy.regime_filter import volatility_spike_detected
 from config.asset_rules import get_asset_rules
 from config.risk import RISK
@@ -62,9 +67,11 @@ class SymbolState:
         self.last_ttf = None
         self.last_observed_at = None
         self.cooldown_until = None
+        self.halted_until = None
         self.warmup_loops_remaining = 0
         self.daily_realized_return = 0.0
         self.loss_streak = 0
+        self.consecutive_losses = 0
         self.last_exit_reason = None
         self.vol_context = None
 
@@ -124,6 +131,22 @@ class StateEngine:
 
         return RISK.win_cooldown_sec
 
+    def _check_global_circuit_breaker(self, now):
+        del now
+
+        total_daily_loss = sum(
+            float(getattr(state, "daily_realized_return", 0.0))
+            for state in self.symbols.values()
+        )
+
+        if total_daily_loss < -0.03:
+            print(
+                f"[CRITICAL] GLOBAL CIRCUIT BREAKER: portfolio daily loss {total_daily_loss:.4%} - halting ALL execution"
+            )
+            return True
+
+        return False
+
     def _close_trade(self, symbol, state, price, exit_reason, now):
         trade_type = state.trade_type
         side = state.side
@@ -134,6 +157,14 @@ class StateEngine:
 
             realized_return = _trade_return(side, state.entry_price, price)
             state.daily_realized_return += realized_return
+
+            if realized_return < 0:
+                state.consecutive_losses = getattr(state, "consecutive_losses", 0) + 1
+            else:
+                state.consecutive_losses = 0
+
+            if getattr(state, "consecutive_losses", 0) >= 3:
+                state.halted_until = (now + timedelta(hours=1)).isoformat()
 
             if realized_return < 0:
                 state.loss_streak += 1
@@ -205,13 +236,21 @@ class StateEngine:
 
         now = now or datetime.now(timezone.utc)
 
-        if not isinstance(price, (int, float)):
-            return
-
         if symbol not in self.symbols:
             self.symbols[symbol] = SymbolState()
 
         s = self.symbols[symbol]
+
+        halted_until = _parse_dt(getattr(s, "halted_until", None))
+        if halted_until and now < halted_until:
+            return
+
+        if self._check_global_circuit_breaker(now):
+            return
+
+        if not isinstance(price, (int, float)):
+            return
+
         asset_rules = get_asset_rules(symbol)
 
         ttf = features.get("time_to_funding_sec")
@@ -230,6 +269,7 @@ class StateEngine:
             s.vol_short_taken = False
             s.daily_realized_return = 0.0
             s.loss_streak = 0
+            s.consecutive_losses = 0
 
         # ---------------- STALE DATA / RECOVERY ----------------
         last_seen = _parse_dt(s.last_observed_at)
@@ -409,9 +449,13 @@ class StateEngine:
                     exit_reason = "take_profit"
                 elif move <= -RISK.vol_hard_stop_pct:
                     exit_reason = "hard_stop"
-                elif move >= RISK.vol_min_activation_pct:
-                    trail = s.peak_price * (1 - RISK.vol_trailing_stop_pct)
+                elif isinstance((s.vol_context or {}).get("timeout_trailing_stop"), (int, float)):
+                    trail = float(s.vol_context["timeout_trailing_stop"])
                     exit_reason = "trailing_stop" if price <= trail else None
+                else:
+                    trail = get_vol_trailing_stop(s)
+                    if isinstance(trail, (int, float)):
+                        exit_reason = "trailing_stop" if price <= trail else None
             else:
                 if price < s.trough_price:
                     s.trough_price = price
@@ -420,9 +464,13 @@ class StateEngine:
                     exit_reason = "take_profit"
                 elif move <= -RISK.vol_hard_stop_pct:
                     exit_reason = "hard_stop"
-                elif move >= RISK.vol_min_activation_pct:
-                    trail = s.trough_price * (1 + RISK.vol_trailing_stop_pct)
+                elif isinstance((s.vol_context or {}).get("timeout_trailing_stop"), (int, float)):
+                    trail = float(s.vol_context["timeout_trailing_stop"])
                     exit_reason = "trailing_stop" if price >= trail else None
+                else:
+                    trail = get_vol_trailing_stop(s)
+                    if isinstance(trail, (int, float)):
+                        exit_reason = "trailing_stop" if price >= trail else None
 
             if not exit_reason:
                 exit_reason, updated_context = evaluate_vol_exit(
@@ -433,6 +481,13 @@ class StateEngine:
                     asset_rules=asset_rules,
                 )
                 s.vol_context = updated_context
+
+            if not exit_reason:
+                entry_time = _parse_dt(s.entry_time)
+                if entry_time and (now - entry_time).total_seconds() >= RISK.vol_timeout_sec:
+                    should_exit_timeout = handle_vol_timeout(s, move)
+                    if should_exit_timeout:
+                        exit_reason = "timeout"
 
             if exit_reason:
                 self._close_trade(symbol, s, price, exit_reason, now)
