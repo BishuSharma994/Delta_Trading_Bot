@@ -6,9 +6,10 @@ import time
 from datetime import datetime, timezone
 
 from core.feature_pipeline import build_feature_vector
+from core.market_hours import symbol_tradeable
 from intelligence.evaluator import evaluate
 from data.events import log_event
-from config.settings import SYMBOLS, DECISION_LOOP_SLEEP_SECONDS
+from config.settings import ACTIVE_SYMBOLS, DECISION_LOOP_SLEEP_SECONDS
 
 
 
@@ -41,7 +42,9 @@ def run_once(symbol: str):
 
 def run_loop():
     while True:
-        for symbol in SYMBOLS:
+        for symbol in ACTIVE_SYMBOLS:
+            if not symbol_tradeable(symbol):
+                continue
             run_once(symbol)
 
         time.sleep(DECISION_LOOP_SLEEP_SECONDS)

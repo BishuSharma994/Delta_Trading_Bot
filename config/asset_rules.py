@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 
 
 @dataclass(frozen=True)
@@ -45,4 +45,152 @@ def get_asset_rules(symbol: str | None = None) -> AssetRules:
     if not overrides:
         return DEFAULT_ASSET_RULES
 
-    return replace(DEFAULT_ASSET_RULES, **overrides)
+    valid_fields = {field.name for field in fields(AssetRules)}
+    compatible_overrides = {
+        key: value for key, value in overrides.items() if key in valid_fields
+    }
+    if not compatible_overrides:
+        return DEFAULT_ASSET_RULES
+
+    return replace(DEFAULT_ASSET_RULES, **compatible_overrides)
+
+
+# ── xStock Asset Rules ────────────────────────────────────────────────────────
+# Volatility tiers:
+#   LOW  (ETFs):        SPY, QQQ         — tightest stops
+#   MED  (Blue chips):  GOOGL, META, AAPL, AMZN, NVDA
+#   HIGH (High beta):   TSLA, COIN, CRCL — widest stops
+
+XSTOCK_ASSET_RULES = {
+    "GOOGLXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.008,
+        "vol_take_profit_pct":    0.012,
+        "vol_trailing_stop_pct":  0.003,
+        "vol_min_activation_pct": 0.004,
+        "max_bid_ask_spread_pct": 0.0015,
+        "funding_stop_pct":       0.004,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.003,
+    },
+    "METAXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.008,
+        "vol_take_profit_pct":    0.012,
+        "vol_trailing_stop_pct":  0.003,
+        "vol_min_activation_pct": 0.004,
+        "max_bid_ask_spread_pct": 0.0015,
+        "funding_stop_pct":       0.004,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.003,
+    },
+    "AAPLXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.006,
+        "vol_take_profit_pct":    0.010,
+        "vol_trailing_stop_pct":  0.002,
+        "vol_min_activation_pct": 0.003,
+        "max_bid_ask_spread_pct": 0.0015,
+        "funding_stop_pct":       0.003,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.002,
+    },
+    "AMZNXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.008,
+        "vol_take_profit_pct":    0.012,
+        "vol_trailing_stop_pct":  0.003,
+        "vol_min_activation_pct": 0.004,
+        "max_bid_ask_spread_pct": 0.0015,
+        "funding_stop_pct":       0.004,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.003,
+    },
+    "TSLAXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.012,
+        "vol_take_profit_pct":    0.018,
+        "vol_trailing_stop_pct":  0.004,
+        "vol_min_activation_pct": 0.006,
+        "max_bid_ask_spread_pct": 0.0020,
+        "funding_stop_pct":       0.006,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.005,
+    },
+    "NVDAXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.010,
+        "vol_take_profit_pct":    0.015,
+        "vol_trailing_stop_pct":  0.003,
+        "vol_min_activation_pct": 0.005,
+        "max_bid_ask_spread_pct": 0.0015,
+        "funding_stop_pct":       0.005,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.004,
+    },
+    "COINXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.015,
+        "vol_take_profit_pct":    0.022,
+        "vol_trailing_stop_pct":  0.005,
+        "vol_min_activation_pct": 0.007,
+        "max_bid_ask_spread_pct": 0.0025,
+        "funding_stop_pct":       0.007,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.006,
+    },
+    "CRCLXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.015,
+        "vol_take_profit_pct":    0.022,
+        "vol_trailing_stop_pct":  0.005,
+        "vol_min_activation_pct": 0.007,
+        "max_bid_ask_spread_pct": 0.0025,
+        "funding_stop_pct":       0.007,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.006,
+    },
+    "QQQXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.007,
+        "vol_take_profit_pct":    0.010,
+        "vol_trailing_stop_pct":  0.002,
+        "vol_min_activation_pct": 0.003,
+        "max_bid_ask_spread_pct": 0.0012,
+        "funding_stop_pct":       0.003,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.002,
+    },
+    "SPYXUSD": {
+        "min_lot_usd":            5.0,
+        "vol_hard_stop_pct":      0.006,
+        "vol_take_profit_pct":    0.009,
+        "vol_trailing_stop_pct":  0.002,
+        "vol_min_activation_pct": 0.003,
+        "max_bid_ask_spread_pct": 0.0012,
+        "funding_stop_pct":       0.003,
+        "min_funding_rate_abs":   0.0001,
+        "max_pre_volatility_5m":  0.002,
+    },
+}
+
+# Merge xStock rules into main ASSET_RULES
+# If ASSET_RULES exists above: ASSET_RULES.update(XSTOCK_ASSET_RULES)
+# If not: create ASSET_RULES = {**existing_dict, **XSTOCK_ASSET_RULES}
+ASSET_RULES = dict(globals().get("ASSET_RULES", {}))
+ASSET_RULES.update(XSTOCK_ASSET_RULES)
+
+XSTOCK_ASSET_RULES = {
+    "GOOGLXUSD": {"leverage": 25, "sl_pct": 0.008, "tp_pct": 0.016, "max_pos_usd": 500},
+    "METAXUSD":  {"leverage": 25, "sl_pct": 0.008, "tp_pct": 0.016, "max_pos_usd": 500},
+    "AAPLXUSD":  {"leverage": 25, "sl_pct": 0.008, "tp_pct": 0.016, "max_pos_usd": 500},
+    "AMZNXUSD":  {"leverage": 25, "sl_pct": 0.008, "tp_pct": 0.016, "max_pos_usd": 500},
+    "TSLAXUSD":  {"leverage": 25, "sl_pct": 0.010, "tp_pct": 0.020, "max_pos_usd": 300},
+    "NVDAXUSD":  {"leverage": 25, "sl_pct": 0.010, "tp_pct": 0.020, "max_pos_usd": 300},
+    "COINXUSD":  {"leverage": 25, "sl_pct": 0.010, "tp_pct": 0.020, "max_pos_usd": 300},
+    "CRCLXUSD":  {"leverage": 25, "sl_pct": 0.010, "tp_pct": 0.020, "max_pos_usd": 300},
+    "QQQXUSD":   {"leverage": 25, "sl_pct": 0.006, "tp_pct": 0.012, "max_pos_usd": 700},
+    "SPYXUSD":   {"leverage": 25, "sl_pct": 0.006, "tp_pct": 0.012, "max_pos_usd": 700},
+}
+
+ASSET_RULE_OVERRIDES.update(XSTOCK_ASSET_RULES)
