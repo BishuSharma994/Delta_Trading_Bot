@@ -1,5 +1,5 @@
 # Observed symbols (perpetuals)
-XSTOCK_ENABLED = False
+XSTOCK_ENABLED = True  # ← CHANGED — Phase 3: 72h paper validation started 2026-04-22
 
 CRYPTO_SYMBOLS = ["BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD"]
 

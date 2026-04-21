@@ -67,7 +67,7 @@
 ### Phase 3 — xStock Paper Validation
 **Goal:** 72h paper trade xStock symbols before enabling live trading.
 
-- [ ] Set XSTOCK_ENABLED = True in config/settings.py
+- [x] Set XSTOCK_ENABLED = True in config/settings.py  # ← CHANGED
 - [ ] Run paper trades for 72 hours
 - [ ] Review trade_stats.py output
 - [ ] Confirm spread filter working during NYSE hours
