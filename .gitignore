@@ -35,3 +35,6 @@ execution_state.json
 
 # Local mirror of VPS runtime state for review only
 runtime_mirror/
+
+# Local brain runtime data
+brain/data/
