@@ -69,7 +69,16 @@ Kill-switch configuration lives at `config/v5/kill_switch.yaml`.
 | Martingale | Unbounded risk escalation |
 | Cross-symbol correlation trades | Not part of V5.1 design |
 | Auto-compounding | Not part of risk model |
+| Size positions for live capital (paper sizing for audit and research is permitted) | Live-capital sizing remains out of scope in dry-run governance |
 | Self-disarming kill switch | Emergency halt must remain explicit and auditable |
 | Hypothesis auto-promotion | Research evidence does not self-authorize execution |
+
+## Phase 4 Risk Controls (Active, Dry-Run Scope)
+
+- All position sizing is paper-notional only - no real capital is deployed
+- Portfolio drawdown kill-switch is enforced at the state engine level
+- Funding ceiling and trailing-stop thresholds are config-driven (`risk.py`)
+- Sizing metadata is logged to `paper_trades.jsonl` for post-hoc analysis only
+- Live execution remains impossible and requires a separate repository
 
 See `PROJECT_STATE.md` for full performance data.

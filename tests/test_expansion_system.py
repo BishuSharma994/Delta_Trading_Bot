@@ -8,6 +8,8 @@ PARENT = ROOT.parent
 
 if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.strategy.expansion_validator import validate_expansion
 from app.strategy.exit_manager import evaluate_vol_exit

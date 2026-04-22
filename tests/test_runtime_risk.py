@@ -1,5 +1,4 @@
 import sys
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -10,8 +9,11 @@ PARENT = ROOT.parent
 
 if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from config.risk import RISK
+from app.strategy.exit_manager import get_vol_trailing_stop, handle_vol_timeout
 from core import state_engine as state_engine_module
 from core.state_engine import StateEngine, SymbolState
 from Delta_Trading_Bot.strategies.funding_bias import FundingBiasStrategy
@@ -19,25 +21,22 @@ from Delta_Trading_Bot.strategies.funding_bias import FundingBiasStrategy
 
 class RuntimeRiskTests(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.state_file = Path(self.temp_dir.name) / "execution_state.json"
         self.events = []
 
-        self.state_patch = patch.object(state_engine_module, "STATE_FILE", self.state_file)
+        self.save_patch = patch.object(state_engine_module.StateEngine, "_save", autospec=True)
         self.write_patch = patch.object(
             state_engine_module,
             "write_event",
             side_effect=lambda filename, payload: self.events.append((filename, payload.copy())),
         )
 
-        self.state_patch.start()
+        self.save_patch.start()
         self.write_patch.start()
         self.engine = StateEngine()
 
     def tearDown(self):
         self.write_patch.stop()
-        self.state_patch.stop()
-        self.temp_dir.cleanup()
+        self.save_patch.stop()
 
     def test_funding_bias_uses_signed_direction(self):
         strategy = FundingBiasStrategy()
@@ -125,6 +124,130 @@ class RuntimeRiskTests(unittest.TestCase):
 
         self.assertEqual(self.engine.symbols["ETHUSD"].state, "FLAT")
         self.assertFalse(self.events)
+
+    def test_funding_rate_filter_rejects_extreme_funding(self):
+        now = datetime(2026, 4, 1, 2, 0, tzinfo=timezone.utc)
+
+        self.engine.process(
+            "BTCUSD",
+            decision={"score": 1.0},
+            features={
+                "funding_rate": 0.004,
+                "funding_rate_abs": RISK.max_funding_rate_abs + 0.0001,
+                "time_to_funding_sec": 120,
+                "pre_volatility_5m": 0.001,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={"state": "BIAS_DETECTED", "bias": -1, "side": "SHORT", "confidence": 0.6},
+            vol_vote={},
+            now=now,
+        )
+
+        self.assertEqual(self.engine.symbols["BTCUSD"].state, "FLAT")
+        self.assertEqual(self.events[-1][1]["reason"], "funding_rate_filter")
+
+    def test_position_sizing_scales_with_symbol_volatility(self):
+        now = datetime(2026, 4, 1, 3, 0, tzinfo=timezone.utc)
+        decision = {"score": 1.0}
+        vol_vote = {
+            "state": "STRUCTURE_CONFIRMED",
+            "signal": "LONG",
+            "confidence": 0.90,
+            "reason": "trend_follow",
+            "ob": {"low": 99.0, "high": 101.0},
+            "expansion": {"displacement_ratio": 1.2},
+        }
+
+        self.engine.process(
+            "BTCUSD",
+            decision=decision,
+            features={
+                "pre_volatility_5m": 0.0010,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote=vol_vote,
+            now=now,
+        )
+
+        self.engine.process(
+            "ETHUSD",
+            decision=decision,
+            features={
+                "pre_volatility_5m": 0.0040,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote={**vol_vote, "signal": "SHORT"},
+            now=now,
+        )
+
+        btc_state = self.engine.symbols["BTCUSD"]
+        eth_state = self.engine.symbols["ETHUSD"]
+
+        self.assertEqual(btc_state.state, "IN_VOL_TRADE")
+        self.assertEqual(eth_state.state, "IN_VOL_TRADE")
+        self.assertGreater(btc_state.position_notional_usd, eth_state.position_notional_usd)
+        self.assertGreater(btc_state.volatility_scale, eth_state.volatility_scale)
+
+    def test_portfolio_drawdown_kill_switch_blocks_new_entries(self):
+        now = datetime(2026, 4, 1, 4, 0, tzinfo=timezone.utc)
+        losing_state = SymbolState()
+        losing_state.trade_date = now.date().isoformat()
+        losing_state.daily_realized_return = -RISK.portfolio_max_daily_drawdown_pct
+        self.engine.symbols["BTCUSD"] = losing_state
+
+        self.engine.process(
+            "ETHUSD",
+            decision={"score": 1.0},
+            features={
+                "pre_volatility_5m": 0.0010,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote={
+                "state": "STRUCTURE_CONFIRMED",
+                "signal": "LONG",
+                "confidence": 0.90,
+                "reason": "trend_follow",
+                "ob": {"low": 99.0, "high": 101.0},
+                "expansion": {"displacement_ratio": 1.2},
+            },
+            now=now,
+        )
+
+        self.assertEqual(self.engine.symbols["ETHUSD"].state, "FLAT")
+        self.assertFalse(self.events)
+
+    def test_trailing_stop_uses_configured_activation_threshold(self):
+        state = SymbolState()
+        state.side = "LONG"
+        state.entry_price = 100.0
+        state.peak_price = 100.05
+        state.trough_price = 100.0
+
+        self.assertIsNone(get_vol_trailing_stop(state))
+
+        state.peak_price = 100.20
+        self.assertIsNotNone(get_vol_trailing_stop(state))
+
+    def test_profitable_timeout_switches_to_buffered_trailing_stop(self):
+        state = SymbolState()
+        state.side = "LONG"
+        state.entry_price = 100.0
+        state.vol_context = {}
+
+        should_exit = handle_vol_timeout(state, current_pnl_pct=0.0020, log_func=lambda *_: None)
+
+        self.assertFalse(should_exit)
+        self.assertAlmostEqual(
+            state.vol_context["timeout_trailing_stop"],
+            100.0 * (1 + RISK.vol_timeout_trailing_buffer_pct),
+        )
 
 
 if __name__ == "__main__":

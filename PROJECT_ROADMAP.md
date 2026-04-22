@@ -77,11 +77,11 @@
 ### Phase 4 - Risk Management Upgrade
 **Goal:** Dynamic position sizing based on brain confidence scores.
 
-- [ ] Per-symbol volatility-adjusted position sizing
-- [ ] Max daily drawdown kill-switch (e.g. -3% stops all trading)
-- [ ] Per-symbol max concurrent positions cap
-- [ ] Trailing stop implementation for trending markets
-- [ ] Funding rate filter (skip entry if funding > threshold)
+- [x] Per-symbol volatility-adjusted position sizing
+- [x] Max daily drawdown kill-switch (e.g. -3% stops all trading)
+- [x] Per-symbol max concurrent positions cap
+- [x] Trailing stop implementation for trending markets
+- [x] Funding rate filter (skip entry if funding > threshold)
 
 ### Phase 5 - Performance Dashboard
 **Goal:** Track bot performance locally without external tools.

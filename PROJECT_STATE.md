@@ -1,4 +1,4 @@
-Version: V5.1 | Status: AUTHORITATIVE PROJECT STATE | Last Updated: 2026-04-22
+Version: PHASE4-RISK-LAYER-ACTIVE | Status: AUTHORITATIVE PROJECT STATE | Last Updated: 2026-04-22
 
 # Project State
 
@@ -17,9 +17,12 @@ Covered symbols:
 
 | Field | Value |
 | --- | --- |
-| Version | V5.1 |
+| Mode | PHASE4-DRY-RUN-ACTIVE |
 | Exchange | Delta Exchange India |
 | Market | Perpetual Futures |
+| Execution | PAPER TRADE ONLY - NO LIVE EXCHANGE CALLS |
+| Capital Exposure | ZERO (paper only) |
+| Sizing | DYNAMIC (confidence + volatility scaled, paper notional only) |
 | Hosting | DigitalOcean VPS |
 | Runtime mode | Paper trading |
 | Validation window | 72 hours |
@@ -34,6 +37,17 @@ Covered symbols:
 | V4 | Senior Research | Hypotheses, scenarios, stress framework, confidence research |
 | V5.0 | Dry-run execution | Paper-trade execution path with governance and exits |
 | V5.1 | Live-ready paper validation | Risk and alignment fixes applied to production paper loop |
+
+## Completed Phases Locked
+
+## Phase 4 — Runtime Risk Layer (COMPLETE, DRY-RUN ACTIVE)
+
+- Dynamic position sizing: confidence scale x volatility scale -> notional USD
+- Portfolio-level daily drawdown kill-switch (all symbols halted when breached)
+- Funding-rate ceiling guard (skips overheated entries above configurable threshold)
+- Configurable trailing-stop behavior (reads from `risk.py`, not hardcoded)
+- Per-symbol concurrent-position limits enforced in state engine
+- Trade log includes sizing metadata: `position_notional_usd`, `position_size_units`, `confidence_scale`, `volatility_scale`
 
 ## What V5.1 Changed From V5.0
 

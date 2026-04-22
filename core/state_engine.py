@@ -1,7 +1,7 @@
 # core/state_engine.py
 
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.strategy.exit_manager import (
@@ -13,12 +13,12 @@ from app.strategy.exit_manager import (
 from app.strategy.regime_filter import volatility_spike_detected
 from config.asset_rules import get_asset_rules
 from config.risk import RISK
-from config.settings import SPREAD_MAX_PCT, XSTOCK_SYMBOLS  # ← NEW
-from core.market_hours import is_nyse_hours  # ← NEW
+from config.settings import SPREAD_MAX_PCT, XSTOCK_SYMBOLS
+from core.market_hours import is_nyse_hours
 from utils.io import write_event
 
 STATE_FILE = Path("execution_state.json")
-XSTOCK_SYMBOL_SET = {symbol.upper() for symbol in XSTOCK_SYMBOLS}  # ← NEW
+XSTOCK_SYMBOL_SET = {symbol.upper() for symbol in XSTOCK_SYMBOLS}
 
 
 def _parse_dt(value):
@@ -29,6 +29,16 @@ def _parse_dt(value):
         return datetime.fromisoformat(value)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_float(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
 
 
 def _trade_return(side, entry_price, exit_price):
@@ -77,6 +87,11 @@ class SymbolState:
         self.consecutive_losses = 0
         self.last_exit_reason = None
         self.vol_context = None
+        self.position_notional_usd = None
+        self.position_size_units = None
+        self.signal_confidence = None
+        self.confidence_scale = None
+        self.volatility_scale = None
 
 
 class StateEngine:
@@ -99,6 +114,22 @@ class StateEngine:
         with open(STATE_FILE, "w") as f:
             json.dump(raw, f, indent=2)
 
+    def _build_position_payload(self, state):
+        payload = {}
+
+        if isinstance(getattr(state, "position_notional_usd", None), (int, float)):
+            payload["position_notional_usd"] = float(state.position_notional_usd)
+        if isinstance(getattr(state, "position_size_units", None), (int, float)):
+            payload["position_size_units"] = float(state.position_size_units)
+        if isinstance(getattr(state, "signal_confidence", None), (int, float)):
+            payload["signal_confidence"] = float(state.signal_confidence)
+        if isinstance(getattr(state, "confidence_scale", None), (int, float)):
+            payload["confidence_scale"] = float(state.confidence_scale)
+        if isinstance(getattr(state, "volatility_scale", None), (int, float)):
+            payload["volatility_scale"] = float(state.volatility_scale)
+
+        return payload
+
     def _log(
         self,
         symbol,
@@ -110,8 +141,9 @@ class StateEngine:
         now,
         spread_pct=None,
         nyse_session=False,
+        position_payload=None,
     ):
-        asset_trade_type = "xstock" if symbol.upper() in XSTOCK_SYMBOL_SET else "crypto"  # ← NEW
+        asset_trade_type = "xstock" if symbol.upper() in XSTOCK_SYMBOL_SET else "crypto"
         payload = {
             "symbol": symbol,
             "action": action,
@@ -127,9 +159,21 @@ class StateEngine:
         if isinstance(spread_pct, (int, float)):
             payload["spread_pct"] = float(spread_pct)
 
+        if isinstance(position_payload, dict):
+            payload.update(position_payload)
+
         write_event("paper_trades.jsonl", payload)
 
-    def _log_rejection(self, symbol, side, reason, now, spread_pct=None, nyse_session=False):  # ← NEW
+    def _log_rejection(
+        self,
+        symbol,
+        side,
+        reason,
+        now,
+        spread_pct=None,
+        nyse_session=False,
+        position_payload=None,
+    ):
         payload = {
             "symbol": symbol,
             "action": "REJECT",
@@ -143,6 +187,9 @@ class StateEngine:
         if isinstance(spread_pct, (int, float)):
             payload["spread_pct"] = float(spread_pct)
 
+        if isinstance(position_payload, dict):
+            payload.update(position_payload)
+
         write_event("paper_trades.jsonl", payload)
 
     def _reset_position(self, state):
@@ -155,6 +202,11 @@ class StateEngine:
         state.trough_price = None
         state.exit_funding_ts = None
         state.vol_context = None
+        state.position_notional_usd = None
+        state.position_size_units = None
+        state.signal_confidence = None
+        state.confidence_scale = None
+        state.volatility_scale = None
 
     def _cooldown_seconds(self, exit_reason, realized_return):
         if exit_reason in {
@@ -170,21 +222,98 @@ class StateEngine:
 
         return RISK.win_cooldown_sec
 
-    def _check_global_circuit_breaker(self, now):
-        del now
-
+    def _check_global_circuit_breaker(self):
         total_daily_loss = sum(
             float(getattr(state, "daily_realized_return", 0.0))
             for state in self.symbols.values()
         )
 
-        if total_daily_loss < -0.03:
+        if total_daily_loss <= -RISK.portfolio_max_daily_drawdown_pct:
             print(
-                f"[CRITICAL] GLOBAL CIRCUIT BREAKER: portfolio daily loss {total_daily_loss:.4%} - halting ALL execution"
+                "[CRITICAL] GLOBAL CIRCUIT BREAKER: "
+                f"portfolio daily loss {total_daily_loss:.4%} "
+                f"<= {-RISK.portfolio_max_daily_drawdown_pct:.4%}"
             )
             return True
 
         return False
+
+    def _position_count(self, state):
+        return 0 if getattr(state, "state", "FLAT") == "FLAT" else 1
+
+    def _has_capacity_for_entry(self, state):
+        return self._position_count(state) < RISK.max_concurrent_positions_per_symbol
+
+    def _extract_signal_confidence(self, decision, trade_type, funding_vote, vol_vote):
+        values = []
+
+        decision_score = _coerce_float((decision or {}).get("score"))
+        if decision_score is not None:
+            values.append(_clamp(decision_score, 0.0, 1.0))
+
+        if trade_type == "FUNDING":
+            funding_confidence = _coerce_float((funding_vote or {}).get("confidence"))
+            if funding_confidence is not None:
+                values.append(_clamp(funding_confidence, 0.0, 1.0))
+        elif trade_type == "VOL":
+            vol_confidence = _coerce_float((vol_vote or {}).get("confidence"))
+            if vol_confidence is not None:
+                values.append(_clamp(vol_confidence, 0.0, 1.0))
+
+        if not values:
+            return RISK.min_position_confidence
+
+        return _clamp(
+            sum(values) / len(values),
+            RISK.min_position_confidence,
+            RISK.max_position_confidence,
+        )
+
+    def _build_position_sizing(self, price, pre_volatility, signal_confidence):
+        signal_confidence = _clamp(
+            signal_confidence,
+            RISK.min_position_confidence,
+            RISK.max_position_confidence,
+        )
+
+        confidence_band = max(
+            RISK.max_position_confidence - RISK.min_position_confidence,
+            1e-9,
+        )
+        normalized_confidence = (
+            signal_confidence - RISK.min_position_confidence
+        ) / confidence_band
+        confidence_scale = (
+            RISK.position_confidence_floor_scale
+            + normalized_confidence * (1.0 - RISK.position_confidence_floor_scale)
+        )
+
+        volatility_scale = 1.0
+        if isinstance(pre_volatility, (int, float)) and pre_volatility > 0:
+            volatility_scale = _clamp(
+                RISK.position_volatility_target_pct / float(pre_volatility),
+                RISK.position_volatility_floor_scale,
+                RISK.position_volatility_ceiling_scale,
+            )
+
+        position_notional_usd = _clamp(
+            RISK.base_position_notional_usd * confidence_scale * volatility_scale,
+            RISK.min_position_notional_usd,
+            RISK.max_position_notional_usd,
+        )
+        position_size_units = (
+            position_notional_usd / float(price)
+            if isinstance(price, (int, float)) and price > 0
+            else 0.0
+        )
+
+        return {
+            "position_notional_usd": round(position_notional_usd, 4),
+            "position_size_units": round(position_size_units, 8),
+            "signal_confidence": round(signal_confidence, 4),
+            "confidence_scale": round(confidence_scale, 4),
+            "volatility_scale": round(volatility_scale, 4),
+        }
 
     def _close_trade(self, symbol, state, price, exit_reason, now, spread_pct=None, nyse_session=False):
         trade_type = state.trade_type
@@ -202,6 +331,7 @@ class StateEngine:
                 now,
                 spread_pct=spread_pct,
                 nyse_session=nyse_session,
+                position_payload=self._build_position_payload(state),
             )
 
             realized_return = _trade_return(side, state.entry_price, price)
@@ -265,6 +395,7 @@ class StateEngine:
         side,
         price,
         now,
+        position_payload,
         exit_funding_ts=None,
         vol_context=None,
     ):
@@ -278,11 +409,13 @@ class StateEngine:
         state.exit_funding_ts = exit_funding_ts
         state.cooldown_until = None
         state.vol_context = vol_context
+        state.position_notional_usd = position_payload.get("position_notional_usd")
+        state.position_size_units = position_payload.get("position_size_units")
+        state.signal_confidence = position_payload.get("signal_confidence")
+        state.confidence_scale = position_payload.get("confidence_scale")
+        state.volatility_scale = position_payload.get("volatility_scale")
 
     def process(self, symbol, decision, features, price, funding_vote, vol_vote, now=None):
-
-        del decision
-
         now = now or datetime.now(timezone.utc)
 
         if symbol not in self.symbols:
@@ -294,26 +427,26 @@ class StateEngine:
         if halted_until and now < halted_until:
             return
 
-        if self._check_global_circuit_breaker(now):
+        if self._check_global_circuit_breaker():
             return
 
         if not isinstance(price, (int, float)):
             return
 
         asset_rules = get_asset_rules(symbol)
-        is_xstock = symbol.upper() in XSTOCK_SYMBOL_SET  # ← NEW
+        is_xstock = symbol.upper() in XSTOCK_SYMBOL_SET
 
         ttf = features.get("time_to_funding_sec")
         funding_rate = features.get("funding_rate")
         funding_rate_abs = features.get("funding_rate_abs")
         pre_volatility = features.get("pre_volatility_5m")
         spread_pct = features.get("bid_ask_spread_pct")
-        nyse_session = bool(features.get("nyse_session")) if is_xstock else False  # ← NEW
+        nyse_session = bool(features.get("nyse_session")) if is_xstock else False
 
         if is_xstock and not nyse_session:
-            nyse_session = is_nyse_hours(now)  # ← NEW
+            nyse_session = is_nyse_hours(now)
 
-        spread_limit_pct = SPREAD_MAX_PCT if is_xstock else RISK.max_bid_ask_spread_pct  # ← NEW
+        spread_limit_pct = SPREAD_MAX_PCT if is_xstock else RISK.max_bid_ask_spread_pct
 
         # ---------------- DAILY RESET ----------------
         today = now.date().isoformat()
@@ -392,6 +525,11 @@ class StateEngine:
                         elif bias == -1:
                             funding_side = "SHORT"
 
+                funding_rate_safe = (
+                    not isinstance(funding_rate_abs, (int, float))
+                    or funding_rate_abs <= RISK.max_funding_rate_abs
+                )
+
                 funding_entry_ready = (
                     not is_xstock
                     and not s.funding_trade_taken
@@ -399,7 +537,7 @@ class StateEngine:
                     and 0 <= ttf <= RISK.funding_entry_window_sec
                     and isinstance(funding_rate, (int, float))
                     and isinstance(funding_rate_abs, (int, float))
-                    and funding_rate_abs >= RISK.min_funding_rate_abs
+                    and RISK.min_funding_rate_abs <= funding_rate_abs <= RISK.max_funding_rate_abs
                     and isinstance(pre_volatility, (int, float))
                     and pre_volatility <= RISK.max_funding_pre_volatility_5m
                     and isinstance(spread_pct, (int, float))
@@ -418,17 +556,27 @@ class StateEngine:
                     and vol_confidence >= RISK.min_vol_confidence
                     and isinstance(pre_volatility, (int, float))
                     and pre_volatility <= RISK.max_vol_pre_volatility_5m
+                    and funding_rate_safe
                     and not (
                         isinstance(ttf, (int, float))
                         and ttf <= RISK.funding_blackout_for_vol_sec
                     )
                 )
 
-                spread_ok = isinstance(spread_pct, (int, float)) and spread_pct <= spread_limit_pct  # ← NEW
-                vol_entry_ready = vol_entry_candidate and spread_ok  # ← NEW
+                spread_ok = isinstance(spread_pct, (int, float)) and spread_pct <= spread_limit_pct
+                vol_entry_ready = vol_entry_candidate and spread_ok
 
-                if is_xstock and vol_entry_candidate and isinstance(spread_pct, (int, float)) and spread_pct > spread_limit_pct:  # ← NEW
-                    print(f"[XSTOCK] SPREAD_REJECT symbol={symbol} spread_pct={spread_pct:.4f}")
+                if not funding_rate_safe and (funding_side in {"LONG", "SHORT"} or vol_signal in {"LONG", "SHORT"}):
+                    self._log_rejection(
+                        symbol,
+                        funding_side if funding_side in {"LONG", "SHORT"} else vol_signal,
+                        "funding_rate_filter",
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                    )
+
+                if vol_entry_candidate and not spread_ok:
                     self._log_rejection(
                         symbol,
                         vol_signal,
@@ -438,13 +586,35 @@ class StateEngine:
                         nyse_session=nyse_session,
                     )
 
-                if funding_entry_ready:
+                if not self._has_capacity_for_entry(s):
+                    intended_side = funding_side if funding_entry_ready else vol_signal
+                    if intended_side in {"LONG", "SHORT"}:
+                        self._log_rejection(
+                            symbol,
+                            intended_side,
+                            "position_cap_reject",
+                            now,
+                            spread_pct=spread_pct,
+                            nyse_session=nyse_session,
+                        )
+                elif funding_entry_ready:
+                    position_payload = self._build_position_sizing(
+                        price=price,
+                        pre_volatility=pre_volatility,
+                        signal_confidence=self._extract_signal_confidence(
+                            decision,
+                            "FUNDING",
+                            funding_vote,
+                            vol_vote,
+                        ),
+                    )
                     self._record_entry(
                         s,
                         "FUNDING",
                         funding_side,
                         price,
                         now,
+                        position_payload=position_payload,
                         exit_funding_ts=(now + timedelta(seconds=float(ttf))).isoformat(),
                     )
 
@@ -462,15 +632,27 @@ class StateEngine:
                         now,
                         spread_pct=spread_pct,
                         nyse_session=nyse_session,
+                        position_payload=position_payload,
                     )
 
                 elif vol_entry_ready and vol_signal == "LONG" and not s.vol_long_taken:
+                    position_payload = self._build_position_sizing(
+                        price=price,
+                        pre_volatility=pre_volatility,
+                        signal_confidence=self._extract_signal_confidence(
+                            decision,
+                            "VOL",
+                            funding_vote,
+                            vol_vote,
+                        ),
+                    )
                     self._record_entry(
                         s,
                         "VOL",
                         "LONG",
                         price,
                         now,
+                        position_payload=position_payload,
                         vol_context=build_vol_entry_context(
                             "LONG",
                             vol_vote,
@@ -492,15 +674,27 @@ class StateEngine:
                         now,
                         spread_pct=spread_pct,
                         nyse_session=nyse_session,
+                        position_payload=position_payload,
                     )
 
                 elif vol_entry_ready and vol_signal == "SHORT" and not s.vol_short_taken:
+                    position_payload = self._build_position_sizing(
+                        price=price,
+                        pre_volatility=pre_volatility,
+                        signal_confidence=self._extract_signal_confidence(
+                            decision,
+                            "VOL",
+                            funding_vote,
+                            vol_vote,
+                        ),
+                    )
                     self._record_entry(
                         s,
                         "VOL",
                         "SHORT",
                         price,
                         now,
+                        position_payload=position_payload,
                         vol_context=build_vol_entry_context(
                             "SHORT",
                             vol_vote,
@@ -522,6 +716,7 @@ class StateEngine:
                         now,
                         spread_pct=spread_pct,
                         nyse_session=nyse_session,
+                        position_payload=position_payload,
                     )
 
         # =================================================

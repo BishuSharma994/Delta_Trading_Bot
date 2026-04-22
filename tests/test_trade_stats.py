@@ -1,4 +1,10 @@
+import sys
 import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from trade_stats import pair_trades
 
@@ -61,11 +67,12 @@ class TradeStatsTests(unittest.TestCase):
             },
         ]
 
-        closed, open_trades, skipped_rows = pair_trades(events)
+        closed, open_trades, skipped_rows, reject_counts = pair_trades(events)
 
         self.assertEqual(len(closed), 2)
         self.assertEqual(len(open_trades), 0)
         self.assertEqual(skipped_rows, 2)
+        self.assertEqual(sum(reject_counts.values()), 0)
         self.assertAlmostEqual(closed[0].return_pct, 0.05)
         self.assertAlmostEqual(closed[1].return_pct, 0.05)
 

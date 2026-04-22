@@ -48,14 +48,17 @@ def build_vol_entry_context(
     atr_pct = _coerce_float(vol_vote.get("atr_pct")) or 0.0
     context = initialize_post_entry_validation(atr_pct, asset_rules)
 
-    context.update({
-        "structure_invalidation": _structure_invalidation(side, vol_vote),
-        "entry_reason": vol_vote.get("reason"),
-        "entry_htf_bias": vol_vote.get("htf_bias"),
-        "entry_displacement_ratio": _coerce_float(
-            (vol_vote.get("expansion") or {}).get("displacement_ratio")
-        ) or 0.0,
-    })
+    context.update(
+        {
+            "structure_invalidation": _structure_invalidation(side, vol_vote),
+            "entry_reason": vol_vote.get("reason"),
+            "entry_htf_bias": vol_vote.get("htf_bias"),
+            "entry_displacement_ratio": _coerce_float(
+                (vol_vote.get("expansion") or {}).get("displacement_ratio")
+            )
+            or 0.0,
+        }
+    )
 
     return context
 
@@ -77,28 +80,28 @@ def get_vol_trailing_stop(state) -> float | None:
         float(state.entry_price),
         float(state.peak_price if state.side == "LONG" else state.trough_price),
     )
-    if current_pnl_pct < 0.0010:
+    if current_pnl_pct < RISK.vol_trailing_activation_profit_pct:
         return None
 
-    # trailing stop activates only after +0.10% profit (prevents premature stop-out)
+    # Trailing only activates after a configurable profit buffer to avoid noise exits.
     if state.side == "LONG":
         return float(state.peak_price) * (1 - RISK.vol_trailing_stop_pct)
     return float(state.trough_price) * (1 + RISK.vol_trailing_stop_pct)
 
 
 def handle_vol_timeout(state, current_pnl_pct: float, log_func=print) -> bool:
-    if current_pnl_pct > 0.0010:
+    if current_pnl_pct > RISK.vol_trailing_activation_profit_pct:
         if not isinstance(state.vol_context, dict):
             state.vol_context = {}
 
         state.vol_context["timeout_trailing_mode"] = True
         state.vol_context["timeout_trailing_stop"] = (
-            float(state.entry_price) * 1.0005
+            float(state.entry_price) * (1 + RISK.vol_timeout_trailing_buffer_pct)
             if state.side == "LONG"
-            else float(state.entry_price) * 0.9995
+            else float(state.entry_price) * (1 - RISK.vol_timeout_trailing_buffer_pct)
         )
-        log_func("timeout suppressed — trade profitable, switching to trailing stop mode")
-        # timeout suppressed for profitable trades — let winners run
+        log_func("timeout suppressed - trade profitable, switching to trailing stop mode")
+        # Timeout is suppressed for profitable trades so winners can keep running.
         return False
 
     return True
@@ -139,7 +142,10 @@ def _momentum_failure(state, price: float, candles: list[dict], asset_rules: Ass
         return False
 
     retracement = favorable_move - current_move
-    if retracement < max(favorable_move * 0.5, float(context.get("entry_atr_pct", 0.0)) * 0.25):
+    if retracement < max(
+        favorable_move * 0.5,
+        float(context.get("entry_atr_pct", 0.0)) * 0.25,
+    ):
         return False
 
     recent = candles[-lookback:]
