@@ -6,11 +6,23 @@
 import sys
 import os
 import time
+import fcntl
 import requests
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
+
+
+# -------------------------
+# SINGLE INSTANCE LOCK
+# -------------------------
+_LOCK_FILE = open("/tmp/trading-bot.lock", "w")
+try:
+    fcntl.flock(_LOCK_FILE, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("Another instance is already running. Exiting.")
+    sys.exit(0)
 
 
 # -------------------------
