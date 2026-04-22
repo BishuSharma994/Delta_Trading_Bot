@@ -1,3 +1,6 @@
+# NOTE: Delta Exchange xStock perpetuals trade 24/7.
+# NYSE hours are tracked for spread-tightening only, not session gating.
+
 import logging
 from datetime import datetime, time as dtime, timezone
 
@@ -9,11 +12,11 @@ XSTOCK_SYMBOLS = frozenset({
     "QQQXUSD",   "SPYXUSD",
 })
 
-NYSE_OPEN_UTC = dtime(13, 30)  # ← NEW
-NYSE_CLOSE_UTC = dtime(20, 0)  # ← NEW
+NYSE_OPEN_UTC = dtime(13, 30)
+NYSE_CLOSE_UTC = dtime(20, 0)
 
 
-def is_nyse_hours(now_utc: datetime) -> bool:  # ← NEW
+def is_nyse_hours(now_utc: datetime) -> bool:
     if now_utc.tzinfo is None:
         now_utc = now_utc.replace(tzinfo=timezone.utc)
     else:
@@ -27,14 +30,10 @@ def is_nyse_hours(now_utc: datetime) -> bool:  # ← NEW
 
 
 def is_us_market_hours() -> bool:
-    return is_nyse_hours(datetime.now(timezone.utc))  # ← CHANGED
+    return is_nyse_hours(datetime.now(timezone.utc))
 
 
-def symbol_tradeable(symbol: str, now_utc: datetime | None = None) -> bool:  # ← CHANGED
-    if symbol not in XSTOCK_SYMBOLS:
-        return True
-
-    allowed = is_nyse_hours(now_utc or datetime.now(timezone.utc))
-    if not allowed:
-        logger.info("SKIP %s - outside NYSE hours", symbol)  # ← CHANGED
-    return allowed
+def symbol_tradeable(symbol: str, now_utc: datetime | None = None) -> bool:
+    """Delta Exchange xStocks trade 24/7. No session gate required."""
+    del symbol, now_utc
+    return True
