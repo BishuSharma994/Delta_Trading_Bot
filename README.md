@@ -21,7 +21,7 @@ config/risk.py <- after approval     live trades on Delta Exchange
 | SOLUSD | 14823 |
 | BNBUSD | 15042 |
 
-### xStock Perpetuals (NYSE hours only)
+### xStock Perpetuals (24/7 on Delta Exchange)
 | Symbol     | Stock      | ID     |
 |------------|------------|--------|
 | GOOGLXUSD  | Alphabet   | 119235 |

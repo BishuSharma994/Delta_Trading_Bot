@@ -14,7 +14,6 @@ from app.strategy.regime_filter import volatility_spike_detected
 from config.asset_rules import get_asset_rules
 from config.risk import RISK
 from config.settings import SPREAD_MAX_PCT, XSTOCK_SYMBOLS
-from core.market_hours import is_nyse_hours
 from utils.io import write_event
 
 STATE_FILE = Path("execution_state.json")
@@ -388,6 +387,26 @@ class StateEngine:
 
         return True
 
+    def _entry_block_reason(self, state, now):
+        if state.daily_trade_count >= RISK.max_daily_trades_per_symbol:
+            return "daily_trade_cap_reject"
+
+        if state.daily_realized_return <= -RISK.max_daily_loss_pct:
+            return "daily_loss_limit_reject"
+
+        if state.loss_streak >= RISK.max_consecutive_losses:
+            return "loss_streak_reject"
+
+        cooldown_until = _parse_dt(state.cooldown_until)
+        if cooldown_until and now < cooldown_until:
+            return "cooldown_active"
+
+        if state.warmup_loops_remaining > 0:
+            state.warmup_loops_remaining -= 1
+            return "warmup_active"
+
+        return None
+
     def _record_entry(
         self,
         state,
@@ -442,9 +461,6 @@ class StateEngine:
         pre_volatility = features.get("pre_volatility_5m")
         spread_pct = features.get("bid_ask_spread_pct")
         nyse_session = bool(features.get("nyse_session")) if is_xstock else False
-
-        if is_xstock and not nyse_session:
-            nyse_session = is_nyse_hours(now)
 
         spread_limit_pct = SPREAD_MAX_PCT if is_xstock else RISK.max_bid_ask_spread_pct
 
@@ -506,218 +522,278 @@ class StateEngine:
         # ENTRY LOGIC
         # =================================================
         if s.state == "FLAT":
-            if self._can_attempt_entry(s, now):
-                vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
-                vol_reason = (
-                    vol_vote.get("reason", "OB_retest_confirmation")
-                    if isinstance(vol_vote, dict)
-                    else "OB_retest_confirmation"
+            vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
+            vol_reason = (
+                vol_vote.get("reason", "OB_retest_confirmation")
+                if isinstance(vol_vote, dict)
+                else "OB_retest_confirmation"
+            )
+            vol_confidence = vol_vote.get("confidence") if isinstance(vol_vote, dict) else None
+
+            funding_side = None
+            if isinstance(funding_vote, dict):
+                funding_side = funding_vote.get("side")
+                if funding_side not in {"LONG", "SHORT"}:
+                    bias = funding_vote.get("bias")
+                    if bias == 1:
+                        funding_side = "LONG"
+                    elif bias == -1:
+                        funding_side = "SHORT"
+
+            funding_rate_safe = (
+                not isinstance(funding_rate_abs, (int, float))
+                or funding_rate_abs <= RISK.max_funding_rate_abs
+            )
+            spread_ok = isinstance(spread_pct, (int, float)) and spread_pct <= spread_limit_pct
+            vol_setup_detected = (
+                isinstance(vol_vote, dict)
+                and vol_vote.get("state") == "STRUCTURE_CONFIRMED"
+                and vol_signal in {"LONG", "SHORT"}
+            )
+
+            funding_entry_ready = (
+                not is_xstock
+                and not s.funding_trade_taken
+                and isinstance(ttf, (int, float))
+                and 0 <= ttf <= RISK.funding_entry_window_sec
+                and isinstance(funding_rate, (int, float))
+                and isinstance(funding_rate_abs, (int, float))
+                and RISK.min_funding_rate_abs <= funding_rate_abs <= RISK.max_funding_rate_abs
+                and isinstance(pre_volatility, (int, float))
+                and pre_volatility <= RISK.max_funding_pre_volatility_5m
+                and spread_ok
+                and isinstance(funding_vote, dict)
+                and funding_vote.get("state") == "BIAS_DETECTED"
+                and funding_side in {"LONG", "SHORT"}
+                and not volatility_spike_detected(vol_vote, asset_rules)
+            )
+
+            vol_entry_candidate = (
+                vol_setup_detected
+                and isinstance(vol_confidence, (int, float))
+                and vol_confidence >= RISK.min_vol_confidence
+                and isinstance(pre_volatility, (int, float))
+                and pre_volatility <= RISK.max_vol_pre_volatility_5m
+                and funding_rate_safe
+                and not (
+                    isinstance(ttf, (int, float))
+                    and ttf <= RISK.funding_blackout_for_vol_sec
                 )
-                vol_confidence = vol_vote.get("confidence") if isinstance(vol_vote, dict) else None
+            )
+            vol_entry_ready = vol_entry_candidate and spread_ok
 
-                funding_side = None
-                if isinstance(funding_vote, dict):
-                    funding_side = funding_vote.get("side")
-                    if funding_side not in {"LONG", "SHORT"}:
-                        bias = funding_vote.get("bias")
-                        if bias == 1:
-                            funding_side = "LONG"
-                        elif bias == -1:
-                            funding_side = "SHORT"
+            intended_side = funding_side if funding_entry_ready else vol_signal
+            entry_block_reason = self._entry_block_reason(s, now)
 
-                funding_rate_safe = (
-                    not isinstance(funding_rate_abs, (int, float))
-                    or funding_rate_abs <= RISK.max_funding_rate_abs
+            if entry_block_reason and intended_side in {"LONG", "SHORT"}:
+                self._log_rejection(
+                    symbol,
+                    intended_side,
+                    entry_block_reason,
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
                 )
-
-                funding_entry_ready = (
-                    not is_xstock
-                    and not s.funding_trade_taken
-                    and isinstance(ttf, (int, float))
-                    and 0 <= ttf <= RISK.funding_entry_window_sec
-                    and isinstance(funding_rate, (int, float))
-                    and isinstance(funding_rate_abs, (int, float))
-                    and RISK.min_funding_rate_abs <= funding_rate_abs <= RISK.max_funding_rate_abs
-                    and isinstance(pre_volatility, (int, float))
-                    and pre_volatility <= RISK.max_funding_pre_volatility_5m
-                    and isinstance(spread_pct, (int, float))
-                    and spread_pct <= spread_limit_pct
-                    and isinstance(funding_vote, dict)
-                    and funding_vote.get("state") == "BIAS_DETECTED"
-                    and funding_side in {"LONG", "SHORT"}
-                    and not volatility_spike_detected(vol_vote, asset_rules)
+            elif not funding_rate_safe and (funding_side in {"LONG", "SHORT"} or vol_signal in {"LONG", "SHORT"}):
+                self._log_rejection(
+                    symbol,
+                    funding_side if funding_side in {"LONG", "SHORT"} else vol_signal,
+                    "funding_rate_filter",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
                 )
-
-                vol_entry_candidate = (
-                    isinstance(vol_vote, dict)
-                    and vol_vote.get("state") == "STRUCTURE_CONFIRMED"
-                    and vol_signal in {"LONG", "SHORT"}
-                    and isinstance(vol_confidence, (int, float))
-                    and vol_confidence >= RISK.min_vol_confidence
-                    and isinstance(pre_volatility, (int, float))
-                    and pre_volatility <= RISK.max_vol_pre_volatility_5m
-                    and funding_rate_safe
-                    and not (
-                        isinstance(ttf, (int, float))
-                        and ttf <= RISK.funding_blackout_for_vol_sec
-                    )
+            elif vol_setup_detected and (
+                not isinstance(vol_confidence, (int, float))
+                or vol_confidence < RISK.min_vol_confidence
+            ):
+                self._log_rejection(
+                    symbol,
+                    vol_signal,
+                    "confidence_too_low",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
                 )
-
-                spread_ok = isinstance(spread_pct, (int, float)) and spread_pct <= spread_limit_pct
-                vol_entry_ready = vol_entry_candidate and spread_ok
-
-                if not funding_rate_safe and (funding_side in {"LONG", "SHORT"} or vol_signal in {"LONG", "SHORT"}):
+            elif vol_setup_detected and (
+                not isinstance(pre_volatility, (int, float))
+                or pre_volatility > RISK.max_vol_pre_volatility_5m
+            ):
+                self._log_rejection(
+                    symbol,
+                    vol_signal,
+                    "volatility_too_high",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
+            elif vol_setup_detected and isinstance(ttf, (int, float)) and ttf <= RISK.funding_blackout_for_vol_sec:
+                self._log_rejection(
+                    symbol,
+                    vol_signal,
+                    "funding_blackout",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
+            elif vol_setup_detected and not spread_ok:
+                self._log_rejection(
+                    symbol,
+                    vol_signal,
+                    "spread_reject",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
+            elif vol_entry_ready and vol_signal == "LONG" and s.vol_long_taken:
+                self._log_rejection(
+                    symbol,
+                    vol_signal,
+                    "direction_already_taken",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
+            elif vol_entry_ready and vol_signal == "SHORT" and s.vol_short_taken:
+                self._log_rejection(
+                    symbol,
+                    vol_signal,
+                    "direction_already_taken",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
+            elif not self._has_capacity_for_entry(s):
+                if intended_side in {"LONG", "SHORT"}:
                     self._log_rejection(
                         symbol,
-                        funding_side if funding_side in {"LONG", "SHORT"} else vol_signal,
-                        "funding_rate_filter",
+                        intended_side,
+                        "position_cap_reject",
                         now,
                         spread_pct=spread_pct,
                         nyse_session=nyse_session,
                     )
-
-                if vol_entry_candidate and not spread_ok:
-                    self._log_rejection(
-                        symbol,
-                        vol_signal,
-                        "spread_reject",
-                        now,
-                        spread_pct=spread_pct,
-                        nyse_session=nyse_session,
-                    )
-
-                if not self._has_capacity_for_entry(s):
-                    intended_side = funding_side if funding_entry_ready else vol_signal
-                    if intended_side in {"LONG", "SHORT"}:
-                        self._log_rejection(
-                            symbol,
-                            intended_side,
-                            "position_cap_reject",
-                            now,
-                            spread_pct=spread_pct,
-                            nyse_session=nyse_session,
-                        )
-                elif funding_entry_ready:
-                    position_payload = self._build_position_sizing(
-                        price=price,
-                        pre_volatility=pre_volatility,
-                        signal_confidence=self._extract_signal_confidence(
-                            decision,
-                            "FUNDING",
-                            funding_vote,
-                            vol_vote,
-                        ),
-                    )
-                    self._record_entry(
-                        s,
+            elif funding_entry_ready:
+                position_payload = self._build_position_sizing(
+                    price=price,
+                    pre_volatility=pre_volatility,
+                    signal_confidence=self._extract_signal_confidence(
+                        decision,
                         "FUNDING",
-                        funding_side,
-                        price,
-                        now,
-                        position_payload=position_payload,
-                        exit_funding_ts=(now + timedelta(seconds=float(ttf))).isoformat(),
-                    )
+                        funding_vote,
+                        vol_vote,
+                    ),
+                )
+                self._record_entry(
+                    s,
+                    "FUNDING",
+                    funding_side,
+                    price,
+                    now,
+                    position_payload=position_payload,
+                    exit_funding_ts=(now + timedelta(seconds=float(ttf))).isoformat(),
+                )
 
-                    s.daily_trade_count += 1
-                    s.funding_trade_taken = True
+                s.daily_trade_count += 1
+                s.funding_trade_taken = True
 
-                    print(f"[FUNDING_ENTRY] {symbol} {funding_side}")
-                    self._log(
-                        symbol,
-                        "ENTRY",
-                        "FUNDING",
-                        funding_side,
-                        price,
-                        "funding_entry",
-                        now,
-                        spread_pct=spread_pct,
-                        nyse_session=nyse_session,
-                        position_payload=position_payload,
-                    )
+                print(f"[FUNDING_ENTRY] {symbol} {funding_side}")
+                self._log(
+                    symbol,
+                    "ENTRY",
+                    "FUNDING",
+                    funding_side,
+                    price,
+                    "funding_entry",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                    position_payload=position_payload,
+                )
 
-                elif vol_entry_ready and vol_signal == "LONG" and not s.vol_long_taken:
-                    position_payload = self._build_position_sizing(
-                        price=price,
-                        pre_volatility=pre_volatility,
-                        signal_confidence=self._extract_signal_confidence(
-                            decision,
-                            "VOL",
-                            funding_vote,
-                            vol_vote,
-                        ),
-                    )
-                    self._record_entry(
-                        s,
+            elif vol_entry_ready and vol_signal == "LONG":
+                position_payload = self._build_position_sizing(
+                    price=price,
+                    pre_volatility=pre_volatility,
+                    signal_confidence=self._extract_signal_confidence(
+                        decision,
                         "VOL",
+                        funding_vote,
+                        vol_vote,
+                    ),
+                )
+                self._record_entry(
+                    s,
+                    "VOL",
+                    "LONG",
+                    price,
+                    now,
+                    position_payload=position_payload,
+                    vol_context=build_vol_entry_context(
                         "LONG",
-                        price,
-                        now,
-                        position_payload=position_payload,
-                        vol_context=build_vol_entry_context(
-                            "LONG",
-                            vol_vote,
-                            asset_rules,
-                        ),
-                    )
+                        vol_vote,
+                        asset_rules,
+                    ),
+                )
 
-                    s.daily_trade_count += 1
-                    s.vol_long_taken = True
+                s.daily_trade_count += 1
+                s.vol_long_taken = True
 
-                    print(f"[VOL_LONG_ENTRY] {symbol}")
-                    self._log(
-                        symbol,
-                        "ENTRY",
+                print(f"[VOL_LONG_ENTRY] {symbol}")
+                self._log(
+                    symbol,
+                    "ENTRY",
+                    "VOL",
+                    "LONG",
+                    price,
+                    vol_reason,
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                    position_payload=position_payload,
+                )
+
+            elif vol_entry_ready and vol_signal == "SHORT":
+                position_payload = self._build_position_sizing(
+                    price=price,
+                    pre_volatility=pre_volatility,
+                    signal_confidence=self._extract_signal_confidence(
+                        decision,
                         "VOL",
-                        "LONG",
-                        price,
-                        vol_reason,
-                        now,
-                        spread_pct=spread_pct,
-                        nyse_session=nyse_session,
-                        position_payload=position_payload,
-                    )
-
-                elif vol_entry_ready and vol_signal == "SHORT" and not s.vol_short_taken:
-                    position_payload = self._build_position_sizing(
-                        price=price,
-                        pre_volatility=pre_volatility,
-                        signal_confidence=self._extract_signal_confidence(
-                            decision,
-                            "VOL",
-                            funding_vote,
-                            vol_vote,
-                        ),
-                    )
-                    self._record_entry(
-                        s,
-                        "VOL",
+                        funding_vote,
+                        vol_vote,
+                    ),
+                )
+                self._record_entry(
+                    s,
+                    "VOL",
+                    "SHORT",
+                    price,
+                    now,
+                    position_payload=position_payload,
+                    vol_context=build_vol_entry_context(
                         "SHORT",
-                        price,
-                        now,
-                        position_payload=position_payload,
-                        vol_context=build_vol_entry_context(
-                            "SHORT",
-                            vol_vote,
-                            asset_rules,
-                        ),
-                    )
+                        vol_vote,
+                        asset_rules,
+                    ),
+                )
 
-                    s.daily_trade_count += 1
-                    s.vol_short_taken = True
+                s.daily_trade_count += 1
+                s.vol_short_taken = True
 
-                    print(f"[VOL_SHORT_ENTRY] {symbol}")
-                    self._log(
-                        symbol,
-                        "ENTRY",
-                        "VOL",
-                        "SHORT",
-                        price,
-                        vol_reason,
-                        now,
-                        spread_pct=spread_pct,
-                        nyse_session=nyse_session,
-                        position_payload=position_payload,
-                    )
+                print(f"[VOL_SHORT_ENTRY] {symbol}")
+                self._log(
+                    symbol,
+                    "ENTRY",
+                    "VOL",
+                    "SHORT",
+                    price,
+                    vol_reason,
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                    position_payload=position_payload,
+                )
 
         # =================================================
         # FUNDING MANAGEMENT

@@ -48,14 +48,11 @@ New files:
   - Crypto remains active by default.
   - xStock trading can be enabled later by flipping one flag.
 
-### 3. US market-hours guard for xStock trading
+### 3. xStock 24/7 tradeability support
 - Created `core/market_hours.py`.
-- Added NYSE-session gate:
-  - Trades allowed only Monday to Friday
-  - Between `9:30 AM` and `4:00 PM` New York time
 - Added `symbol_tradeable(symbol)` logic:
   - Crypto symbols always allowed
-  - xStock symbols blocked outside US cash hours
+  - xStock symbols treated as tradeable 24/7 on Delta Exchange
 - Integrated the gate into `core/decision_loop.py`.
 
 ### 4. Asset-rule support for xStock contracts
@@ -104,7 +101,7 @@ Purpose:
 ### Live/runtime side
 - Crypto perpetual support is active.
 - xStock symbols are configured but disabled by default.
-- If xStock is enabled later, those symbols are blocked outside NYSE cash hours.
+- In the current paper-trading path, xStock symbols are treated as 24/7 instruments.
 
 ### Research/analysis side
 - Brain pipeline exists locally.

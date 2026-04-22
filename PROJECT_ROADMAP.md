@@ -45,7 +45,7 @@
 - 4 crypto perpetuals: BTCUSD, ETHUSD, SOLUSD, BNBUSD
 - systemd service on VPS (auto-restart, auto-start on reboot)
 - xStock symbols added to config (10 symbols, IDs confirmed)
-- NYSE market hours gate (core/market_hours.py)
+- xStock paper-trading path updated for 24/7 Delta Exchange trading
 - Brain offline data collection architecture
 - XSTOCK_ENABLED = True for xStock paper validation (live xStock still pending)
 - Commit: 4f1e3ad
@@ -70,8 +70,8 @@
 - [x] Set XSTOCK_ENABLED = True in config/settings.py
 - [ ] Run paper trades for 72 hours
 - [ ] Review trade_stats.py output
-- [x] Spread filter logic implemented for xStock during NYSE hours
-- [x] xStock session-gating logic implemented outside NYSE hours
+- [x] Spread filter logic implemented for xStock
+- [x] xStock paper-trading path updated for 24/7 trading on Delta Exchange
 - [ ] If pass, enable live xStock trading on VPS
 
 ### Phase 4 - Risk Management Upgrade

@@ -193,6 +193,89 @@ class RuntimeRiskTests(unittest.TestCase):
         self.assertGreater(btc_state.position_notional_usd, eth_state.position_notional_usd)
         self.assertGreater(btc_state.volatility_scale, eth_state.volatility_scale)
 
+    def test_volatility_reject_logs_for_structure_confirmed_setup(self):
+        now = datetime(2026, 4, 1, 3, 30, tzinfo=timezone.utc)
+
+        self.engine.process(
+            "TSLAXUSD",
+            decision={"score": 1.0},
+            features={
+                "pre_volatility_5m": RISK.max_vol_pre_volatility_5m + 0.001,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote={
+                "state": "STRUCTURE_CONFIRMED",
+                "signal": "SHORT",
+                "confidence": 0.95,
+                "reason": "breakdown",
+                "ob": {"low": 99.0, "high": 101.0},
+                "expansion": {"displacement_ratio": 1.2},
+            },
+            now=now,
+        )
+
+        self.assertEqual(self.engine.symbols["TSLAXUSD"].state, "FLAT")
+        self.assertEqual(self.events[-1][1]["reason"], "volatility_too_high")
+
+    def test_xstock_structure_confirmed_can_enter_24x7(self):
+        now = datetime(2026, 4, 1, 3, 45, tzinfo=timezone.utc)
+
+        self.engine.process(
+            "TSLAXUSD",
+            decision={"score": 1.0},
+            features={
+                "pre_volatility_5m": 0.0010,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote={
+                "state": "STRUCTURE_CONFIRMED",
+                "signal": "SHORT",
+                "confidence": 0.95,
+                "reason": "breakdown",
+                "ob": {"low": 99.0, "high": 101.0},
+                "expansion": {"displacement_ratio": 1.2},
+            },
+            now=now,
+        )
+
+        self.assertEqual(self.engine.symbols["TSLAXUSD"].state, "IN_VOL_TRADE")
+        self.assertEqual(self.events[-1][1]["action"], "ENTRY")
+        self.assertEqual(self.events[-1][1]["side"], "SHORT")
+
+    def test_cooldown_active_logs_reject_for_structure_confirmed_setup(self):
+        now = datetime(2026, 4, 1, 3, 50, tzinfo=timezone.utc)
+        state = SymbolState()
+        state.trade_date = now.date().isoformat()
+        state.cooldown_until = (now + timedelta(minutes=15)).isoformat()
+        self.engine.symbols["BTCUSD"] = state
+
+        self.engine.process(
+            "BTCUSD",
+            decision={"score": 1.0},
+            features={
+                "pre_volatility_5m": 0.0010,
+                "bid_ask_spread_pct": 0.0005,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote={
+                "state": "STRUCTURE_CONFIRMED",
+                "signal": "LONG",
+                "confidence": 0.90,
+                "reason": "trend_follow",
+                "ob": {"low": 99.0, "high": 101.0},
+                "expansion": {"displacement_ratio": 1.2},
+            },
+            now=now,
+        )
+
+        self.assertEqual(self.engine.symbols["BTCUSD"].state, "FLAT")
+        self.assertEqual(self.events[-1][1]["reason"], "cooldown_active")
+
     def test_portfolio_drawdown_kill_switch_blocks_new_entries(self):
         now = datetime(2026, 4, 1, 4, 0, tzinfo=timezone.utc)
         losing_state = SymbolState()

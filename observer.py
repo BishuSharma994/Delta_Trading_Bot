@@ -51,9 +51,8 @@ if not API_KEY or not API_SECRET:
 # -------------------------
 from core.feature_pipeline import build_feature_vector
 from core.evaluator import evaluate
-from core.market_hours import is_nyse_hours
 from core.state_engine import StateEngine
-from config.settings import ACTIVE_SYMBOLS, XSTOCK_SYMBOLS
+from config.settings import ACTIVE_SYMBOLS
 from utils.io import write_event
 from strategies.funding_bias import FundingBiasStrategy
 from strategies.volatility_regime import VolatilityRegimeStrategy
@@ -191,9 +190,6 @@ def main():
 
                 # -------- FEATURES --------
                 features = build_feature_vector(symbol)
-                features["nyse_session"] = bool(
-                    is_nyse_hours(loop_start) if symbol in XSTOCK_SYMBOLS else False
-                )
 
                 # -------- STRATEGY VOTES --------
                 funding_vote = funding_strategy.vote(features)

@@ -6,6 +6,8 @@ Version: PHASE5-DASHBOARD-ACTIVE | Status: AUTHORITATIVE PROJECT STATE | Last Up
 
 Delta Trading Bot is a Python paper-trading bot for Delta Exchange India perpetual futures. It runs on a DigitalOcean VPS and currently trades no live capital. The active validation mode is a 72-hour paper-trading window before any live deployment decision.
 
+xStock perpetuals are treated as 24/7 instruments on Delta Exchange in the current paper-trading path.
+
 Covered symbols:
 
 - `BTCUSD`
