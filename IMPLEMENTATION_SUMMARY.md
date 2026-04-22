@@ -1,8 +1,29 @@
 # Delta Trading Bot v5.1 — Implementation Summary
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
 
 ## Completed So Far
+
+### 8. Phase 5 - Performance Dashboard
+
+Extended `trade_stats.py` with:
+- `build_equity_curve()` - cumulative equity and drawdown tracking across all closed trades
+- `append_equity_log()` - append-only JSONL writer to `reports/equity_curve.jsonl`, deduplicates by `exit_ts`
+- `crypto_vs_xstock()` - splits closed trades by symbol group and computes `_bucket_stats` for each
+- `render_weekly()` - generates a weekly text report filtered to a 7-day window
+- `save_report()` - writes any report string to a dated file under `reports/`
+- CLI flags added to `main()`: `--since DAYS`, `--symbol`, `--equity`, `--weekly`, `--save`
+
+Created `scripts/schedule_setup.py`:
+- Prints exact `schtasks` commands (Windows) or crontab entries (Linux)
+- Auto-detects platform; override with `--platform windows|linux`
+- Covers: daily report, weekly summary, brain runner
+
+New files:
+- `scripts/schedule_setup.py`
+- `reports/equity_curve.jsonl` (auto-created on first `--equity` run)
+- `reports/report_YYYY-MM-DD.txt` (auto-created on first `--save` run)
+- `reports/weekly_YYYY-MM-DD.txt` (auto-created on first `--weekly` run)
 
 ### 1. xStock product onboarding
 - Added 10 xStock perpetual symbols to the project:

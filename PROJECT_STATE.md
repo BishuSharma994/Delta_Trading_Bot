@@ -1,4 +1,4 @@
-Version: PHASE4-RISK-LAYER-ACTIVE | Status: AUTHORITATIVE PROJECT STATE | Last Updated: 2026-04-22
+Version: PHASE5-DASHBOARD-ACTIVE | Status: AUTHORITATIVE PROJECT STATE | Last Updated: 2026-04-23
 
 # Project State
 
@@ -17,7 +17,7 @@ Covered symbols:
 
 | Field | Value |
 | --- | --- |
-| Mode | PHASE4-DRY-RUN-ACTIVE |
+| Mode | PHASE5-DASHBOARD-ACTIVE |
 | Exchange | Delta Exchange India |
 | Market | Perpetual Futures |
 | Execution | PAPER TRADE ONLY - NO LIVE EXCHANGE CALLS |
@@ -48,6 +48,29 @@ Covered symbols:
 - Configurable trailing-stop behavior (reads from `risk.py`, not hardcoded)
 - Per-symbol concurrent-position limits enforced in state engine
 - Trade log includes sizing metadata: `position_notional_usd`, `position_size_units`, `confidence_scale`, `volatility_scale`
+
+## Phase 5 - Performance Dashboard (COMPLETE)
+
+### Output files
+| File | Description |
+| --- | --- |
+| reports/equity_curve.jsonl | Append-only equity curve, one point per closed trade |
+| reports/report_YYYY-MM-DD.txt | Daily full report saved with --save flag |
+| reports/weekly_YYYY-MM-DD.txt | Weekly summary saved with --weekly flag |
+
+### How to view
+Run from project root:
+    python trade_stats.py                        # print full report to stdout
+    python trade_stats.py --equity --save        # update equity log + save daily report
+    python trade_stats.py --weekly               # generate this week's summary
+    python trade_stats.py --symbol BTCUSD        # filter to one symbol
+    python trade_stats.py --since 7              # last 7 days only
+
+### Scheduler
+Register recurring tasks with: python scripts/schedule_setup.py
+- Daily report: 08:00 every day
+- Weekly summary: 07:00 every Monday
+- Brain runner: 02:00 every Sunday
 
 ## What V5.1 Changed From V5.0
 

@@ -2,7 +2,7 @@
 
 > Single source of truth for all phases.
 > Update this file as each phase completes.
-> Last Updated: 2026-04-22
+> Last Updated: 2026-04-23
 
 ***
 
@@ -86,11 +86,11 @@
 ### Phase 5 - Performance Dashboard
 **Goal:** Track bot performance locally without external tools.
 
-- [ ] trade_stats.py scheduled report (daily)
-- [ ] Win rate, avg bps, max drawdown per symbol
-- [ ] Equity curve log (append-only)
-- [ ] Weekly summary report auto-generated
-- [ ] Compare crypto vs xStock performance
+- [x] trade_stats.py scheduled report (daily)
+- [x] Win rate, avg bps, max drawdown per symbol
+- [x] Equity curve log (append-only) -> reports/equity_curve.jsonl
+- [x] Weekly summary report auto-generated -> reports/weekly_YYYY-MM-DD.txt
+- [x] Compare crypto vs xStock performance
 
 ### Phase 6 - Multi-Account / Sub-Account
 **Goal:** Separate crypto and xStock into isolated sub-accounts.
@@ -122,4 +122,10 @@
 | Run brain locally | `python -m brain.runner --refresh` |
 | Review brain changes | `python -m brain.config_writer` |
 | Approve brain changes | `python -m brain.config_writer --approve` |
+| View performance | `python trade_stats.py` |
+| Save daily report | `python trade_stats.py --equity --save` |
+| Weekly summary | `python trade_stats.py --weekly` |
+| Filter by symbol | `python trade_stats.py --symbol BTCUSD` |
+| Last 7 days only | `python trade_stats.py --since 7` |
+| Setup scheduler | `python scripts/schedule_setup.py` |
 | Deploy to VPS | `git push origin main` then `git pull` on VPS |

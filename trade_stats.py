@@ -2,7 +2,7 @@ import argparse
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DEFAULT_FILE = Path("data/events/paper_trades.jsonl")
@@ -240,15 +240,209 @@ def render_report(path: Path, trades: list[ClosedTrade], open_trades: dict, skip
     return "\n".join(lines)
 
 
+def build_equity_curve(trades: list[ClosedTrade]) -> list[dict]:
+    equity = 1.0
+    peak = 1.0
+    points = []
+
+    ordered_trades = sorted(trades, key=lambda trade: datetime.fromisoformat(trade.exit_ts))
+    for trade in ordered_trades:
+        equity *= 1 + trade.return_pct
+        peak = max(peak, equity)
+        drawdown_pct = ((peak - equity) / peak * 100) if peak else 0.0
+        points.append(
+            {
+                "exit_ts": trade.exit_ts,
+                "symbol": trade.symbol,
+                "side": trade.side,
+                "exit_reason": trade.exit_reason,
+                "return_pct": round(trade.return_pct * 100, 4),
+                "equity": round(equity, 6),
+                "drawdown_pct": round(drawdown_pct, 4),
+            }
+        )
+
+    return points
+
+
+def append_equity_log(points: list[dict], path: Path = Path("reports/equity_curve.jsonl")) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_exit_ts = set()
+
+    if path.exists():
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                exit_ts = row.get("exit_ts")
+                if isinstance(exit_ts, str):
+                    existing_exit_ts.add(exit_ts)
+
+    appended = 0
+    with path.open("a", encoding="utf-8") as handle:
+        for point in points:
+            exit_ts = point.get("exit_ts")
+            if not isinstance(exit_ts, str) or exit_ts in existing_exit_ts:
+                continue
+            handle.write(json.dumps(point) + "\n")
+            existing_exit_ts.add(exit_ts)
+            appended += 1
+
+    print(f"Appended {appended} new equity points")
+
+
+def crypto_vs_xstock(trades: list[ClosedTrade]) -> dict:
+    from config.settings import CRYPTO_SYMBOLS
+
+    crypto_symbols = set(CRYPTO_SYMBOLS)
+    crypto_trades = [trade for trade in trades if trade.symbol in crypto_symbols]
+    xstock_trades = [trade for trade in trades if trade.symbol not in crypto_symbols]
+    return {
+        "crypto": _bucket_stats(crypto_trades),
+        "xstock": _bucket_stats(xstock_trades),
+    }
+
+
+def render_weekly(trades: list[ClosedTrade], week_start: datetime) -> str:
+    week_end = week_start + timedelta(days=7)
+    weekly_trades = [
+        trade for trade in trades
+        if week_start <= datetime.fromisoformat(trade.exit_ts) < week_end
+    ]
+    overall = _bucket_stats(weekly_trades)
+
+    symbol_buckets = defaultdict(list)
+    for trade in weekly_trades:
+        symbol_buckets[trade.symbol].append(trade)
+
+    symbol_stats = {
+        symbol: _bucket_stats(bucket)
+        for symbol, bucket in sorted(symbol_buckets.items())
+    }
+    asset_class_stats = crypto_vs_xstock(weekly_trades)
+    exit_counts = Counter(trade.exit_reason for trade in weekly_trades)
+    best_trades = sorted(weekly_trades, key=lambda trade: trade.return_pct, reverse=True)[:3]
+    worst_trades = sorted(weekly_trades, key=lambda trade: trade.return_pct)[:3]
+
+    lines = [
+        f"Week: {week_start.date().isoformat()} to {(week_end - timedelta(days=1)).date().isoformat()}",
+        f"Closed trades: {overall['count']}",
+        (
+            "Overall: "
+            f"win={overall['win_rate']:.3f} "
+            f"avg_bps={overall['avg_bps']:.1f} "
+            f"total_pct={overall['total_return_pct']:.2f} "
+            f"median_dur_min={overall['median_duration_min']:.1f}"
+        ),
+        "",
+        "## Per Symbol",
+    ]
+
+    for symbol, stats in symbol_stats.items():
+        lines.append(
+            f"{symbol}: n={stats['count']} win={stats['win_rate']:.3f} "
+            f"avg_bps={stats['avg_bps']:.1f} total_pct={stats['total_return_pct']:.2f} "
+            f"median_dur_min={stats['median_duration_min']:.1f}"
+        )
+
+    lines.extend([
+        "",
+        "## Crypto vs xStock",
+        (
+            f"crypto: n={asset_class_stats['crypto']['count']} "
+            f"win={asset_class_stats['crypto']['win_rate']:.3f} "
+            f"avg_bps={asset_class_stats['crypto']['avg_bps']:.1f} "
+            f"total_pct={asset_class_stats['crypto']['total_return_pct']:.2f}"
+        ),
+        (
+            f"xstock: n={asset_class_stats['xstock']['count']} "
+            f"win={asset_class_stats['xstock']['win_rate']:.3f} "
+            f"avg_bps={asset_class_stats['xstock']['avg_bps']:.1f} "
+            f"total_pct={asset_class_stats['xstock']['total_return_pct']:.2f}"
+        ),
+        "",
+        "## Exit Reason Counts",
+    ])
+
+    for reason, count in exit_counts.most_common():
+        lines.append(f"{reason}: {count}")
+
+    lines.append("")
+    lines.append("## Best 3 Trades")
+    for trade in best_trades:
+        lines.append(
+            f"{trade.exit_ts} {trade.symbol} {trade.side} "
+            f"ret_pct={trade.return_pct * 100:.3f} exit={trade.exit_reason}"
+        )
+
+    lines.append("")
+    lines.append("## Worst 3 Trades")
+    for trade in worst_trades:
+        lines.append(
+            f"{trade.exit_ts} {trade.symbol} {trade.side} "
+            f"ret_pct={trade.return_pct * 100:.3f} exit={trade.exit_reason}"
+        )
+
+    return "\n".join(lines)
+
+
+def save_report(content: str, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    print(f"Saved: {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze paper-trade JSONL output.")
     parser.add_argument("--file", default=str(DEFAULT_FILE), help="Path to paper_trades.jsonl")
+    parser.add_argument("--since", type=int, help="Only include trades closed in the last N days")
+    parser.add_argument("--symbol", help="Only include one symbol")
+    parser.add_argument("--equity", action="store_true", help="Append equity curve points to reports/equity_curve.jsonl")
+    parser.add_argument("--weekly", action="store_true", help="Generate and save a weekly summary report")
+    parser.add_argument("--save", action="store_true", help="Save the full report to reports/report_YYYY-MM-DD.txt")
     args = parser.parse_args()
 
     path = Path(args.file)
     events = load_trade_events(path)
     trades, open_trades, skipped_rows, reject_counts = pair_trades(events)
-    print(render_report(path, trades, open_trades, skipped_rows, reject_counts))
+
+    if args.symbol:
+        symbol = args.symbol.upper()
+        trades = [trade for trade in trades if trade.symbol.upper() == symbol]
+
+    if args.since is not None:
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=args.since)
+        trades = [
+            trade for trade in trades
+            if datetime.fromisoformat(trade.exit_ts).astimezone(timezone.utc) >= cutoff
+        ]
+
+    report = render_report(path, trades, open_trades, skipped_rows, reject_counts)
+    print(report)
+
+    if args.equity:
+        append_equity_log(build_equity_curve(trades))
+
+    if args.save:
+        today = datetime.now(timezone.utc).date().isoformat()
+        save_report(report, Path("reports") / f"report_{today}.txt")
+
+    if args.weekly:
+        today = datetime.now(timezone.utc)
+        week_start = today - timedelta(days=today.weekday())
+        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        weekly_report = render_weekly(trades, week_start)
+        print(weekly_report)
+        save_report(
+            weekly_report,
+            Path("reports") / f"weekly_{week_start.date().isoformat()}.txt",
+        )
 
 
 if __name__ == "__main__":
