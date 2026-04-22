@@ -51,7 +51,9 @@ if not API_KEY or not API_SECRET:
 # -------------------------
 from core.feature_pipeline import build_feature_vector
 from core.evaluator import evaluate
+from core.market_hours import is_nyse_hours, symbol_tradeable  # ← NEW
 from core.state_engine import StateEngine
+from config.settings import ACTIVE_SYMBOLS, XSTOCK_SYMBOLS  # ← NEW
 from utils.io import write_event
 from strategies.funding_bias import FundingBiasStrategy
 from strategies.volatility_regime import VolatilityRegimeStrategy
@@ -65,7 +67,7 @@ LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
 FUNDING_INTERVAL_SECONDS = 8 * 60 * 60  # 28800
 
-TARGET_SYMBOLS = {"BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD"}
+TARGET_SYMBOLS = set(ACTIVE_SYMBOLS)  # ← CHANGED
 
 # =========================
 # LOGGING
@@ -141,6 +143,11 @@ def main():
 
         for symbol, product_id in SYMBOLS.items():
             try:
+                if not symbol_tradeable(symbol, loop_start):  # ← NEW
+                    if symbol in XSTOCK_SYMBOLS:
+                        logging.info("[XSTOCK] NYSE_CLOSED_SKIP symbol=%s", symbol)  # ← NEW
+                    continue
+
                 ticker = get_ticker(symbol)
 
                 mark_price = float(ticker.get("mark_price"))
@@ -174,6 +181,9 @@ def main():
 
                 # -------- FEATURES --------
                 features = build_feature_vector(symbol)
+                features["nyse_session"] = bool(  # ← NEW
+                    is_nyse_hours(loop_start) if symbol in XSTOCK_SYMBOLS else False
+                )
 
                 # -------- STRATEGY VOTES --------
                 funding_vote = funding_strategy.vote(features)

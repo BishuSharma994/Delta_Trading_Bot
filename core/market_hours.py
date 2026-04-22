@@ -1,10 +1,7 @@
 import logging
-from datetime import datetime, time as dtime
-
-import pytz
+from datetime import datetime, time as dtime, timezone
 
 logger = logging.getLogger(__name__)
-NYSE_TZ = pytz.timezone("America/New_York")
 
 XSTOCK_SYMBOLS = frozenset({
     "GOOGLXUSD", "METAXUSD", "AAPLXUSD", "AMZNXUSD",
@@ -12,21 +9,32 @@ XSTOCK_SYMBOLS = frozenset({
     "QQQXUSD",   "SPYXUSD",
 })
 
-MARKET_OPEN = dtime(9, 30)
-MARKET_CLOSE = dtime(16, 0)
+NYSE_OPEN_UTC = dtime(13, 30)  # ← NEW
+NYSE_CLOSE_UTC = dtime(20, 0)  # ← NEW
+
+
+def is_nyse_hours(now_utc: datetime) -> bool:  # ← NEW
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    else:
+        now_utc = now_utc.astimezone(timezone.utc)
+
+    if now_utc.weekday() >= 5:
+        return False
+
+    now_time = now_utc.time().replace(tzinfo=None)
+    return NYSE_OPEN_UTC <= now_time < NYSE_CLOSE_UTC
 
 
 def is_us_market_hours() -> bool:
-    now_est = datetime.now(NYSE_TZ)
-    if now_est.weekday() >= 5:
-        return False
-    return MARKET_OPEN <= now_est.time() <= MARKET_CLOSE
+    return is_nyse_hours(datetime.now(timezone.utc))  # ← CHANGED
 
 
-def symbol_tradeable(symbol: str) -> bool:
+def symbol_tradeable(symbol: str, now_utc: datetime | None = None) -> bool:  # ← CHANGED
     if symbol not in XSTOCK_SYMBOLS:
         return True
-    allowed = is_us_market_hours()
+
+    allowed = is_nyse_hours(now_utc or datetime.now(timezone.utc))
     if not allowed:
-        logger.debug(f"SKIP {symbol} — outside NYSE hours")
+        logger.info("SKIP %s - outside NYSE hours", symbol)  # ← CHANGED
     return allowed

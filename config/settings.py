@@ -1,5 +1,6 @@
 # Observed symbols (perpetuals)
 XSTOCK_ENABLED = True  # ← CHANGED — Phase 3: 72h paper validation started 2026-04-22
+SPREAD_MAX_PCT = 0.003  # ← NEW
 
 CRYPTO_SYMBOLS = ["BTCUSD", "ETHUSD", "SOLUSD", "BNBUSD"]
 

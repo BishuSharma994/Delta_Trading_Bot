@@ -47,16 +47,21 @@ def _trade_return(side: str, entry_price: float, exit_price: float) -> float:
     raise ValueError(f"Unsupported side: {side}")
 
 
-def pair_trades(events: list[dict]) -> tuple[list[ClosedTrade], dict, int]:
+def pair_trades(events: list[dict]) -> tuple[list[ClosedTrade], dict, int, Counter]:
     open_trades = {}
     closed_trades = []
     skipped_rows = 0
+    reject_counts = Counter()  # ← NEW
 
     for event in events:
         action = event.get("action")
         symbol = event.get("symbol")
         trade_type = event.get("trade_type")
         key = (symbol, trade_type)
+
+        if action == "REJECT":
+            reject_counts[event.get("reason", "unknown")] += 1  # ← NEW
+            continue
 
         if action == "ENTRY":
             side = event.get("side")
@@ -102,7 +107,7 @@ def pair_trades(events: list[dict]) -> tuple[list[ClosedTrade], dict, int]:
             )
         )
 
-    return closed_trades, open_trades, skipped_rows
+    return closed_trades, open_trades, skipped_rows, reject_counts
 
 
 def _bucket_stats(trades: list[ClosedTrade]) -> dict:
@@ -182,7 +187,7 @@ def _render_bucket(title: str, stats: dict) -> list[str]:
     return lines
 
 
-def render_report(path: Path, trades: list[ClosedTrade], open_trades: dict, skipped_rows: int) -> str:
+def render_report(path: Path, trades: list[ClosedTrade], open_trades: dict, skipped_rows: int, reject_counts: Counter) -> str:
     summary = summarize_trades(trades)
     overall = summary["overall"]
 
@@ -206,6 +211,10 @@ def render_report(path: Path, trades: list[ClosedTrade], open_trades: dict, skip
 
     lines.append("\n## Exit Counts")
     for reason, count in summary["exit_reason_counts"].most_common():
+        lines.append(f"{reason}: {count}")
+
+    lines.append("\n## Reject Counts")  # ← NEW
+    for reason, count in reject_counts.most_common():
         lines.append(f"{reason}: {count}")
 
     lines.append("\n## Worst Trades")
@@ -238,8 +247,8 @@ def main():
 
     path = Path(args.file)
     events = load_trade_events(path)
-    trades, open_trades, skipped_rows = pair_trades(events)
-    print(render_report(path, trades, open_trades, skipped_rows))
+    trades, open_trades, skipped_rows, reject_counts = pair_trades(events)
+    print(render_report(path, trades, open_trades, skipped_rows, reject_counts))
 
 
 if __name__ == "__main__":

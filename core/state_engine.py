@@ -13,9 +13,12 @@ from app.strategy.exit_manager import (
 from app.strategy.regime_filter import volatility_spike_detected
 from config.asset_rules import get_asset_rules
 from config.risk import RISK
+from config.settings import SPREAD_MAX_PCT, XSTOCK_SYMBOLS  # ← NEW
+from core.market_hours import is_nyse_hours  # ← NEW
 from utils.io import write_event
 
 STATE_FILE = Path("execution_state.json")
+XSTOCK_SYMBOL_SET = {symbol.upper() for symbol in XSTOCK_SYMBOLS}  # ← NEW
 
 
 def _parse_dt(value):
@@ -96,15 +99,51 @@ class StateEngine:
         with open(STATE_FILE, "w") as f:
             json.dump(raw, f, indent=2)
 
-    def _log(self, symbol, action, trade_type, side, price, reason):
-        write_event("paper_trades.jsonl", {
+    def _log(
+        self,
+        symbol,
+        action,
+        strategy_type,
+        side,
+        price,
+        reason,
+        now,
+        spread_pct=None,
+        nyse_session=False,
+    ):
+        asset_trade_type = "xstock" if symbol.upper() in XSTOCK_SYMBOL_SET else "crypto"  # ← NEW
+        payload = {
             "symbol": symbol,
             "action": action,
-            "trade_type": trade_type,
+            "trade_type": asset_trade_type,
+            "strategy_type": strategy_type,
             "side": side,
             "price": float(price),
             "reason": reason,
-        })
+            "timestamp_utc": now.isoformat(),
+            "nyse_session": bool(nyse_session),
+        }
+
+        if isinstance(spread_pct, (int, float)):
+            payload["spread_pct"] = float(spread_pct)
+
+        write_event("paper_trades.jsonl", payload)
+
+    def _log_rejection(self, symbol, side, reason, now, spread_pct=None, nyse_session=False):  # ← NEW
+        payload = {
+            "symbol": symbol,
+            "action": "REJECT",
+            "trade_type": "xstock" if symbol.upper() in XSTOCK_SYMBOL_SET else "crypto",
+            "side": side,
+            "reason": reason,
+            "timestamp_utc": now.isoformat(),
+            "nyse_session": bool(nyse_session),
+        }
+
+        if isinstance(spread_pct, (int, float)):
+            payload["spread_pct"] = float(spread_pct)
+
+        write_event("paper_trades.jsonl", payload)
 
     def _reset_position(self, state):
         state.state = "FLAT"
@@ -147,13 +186,23 @@ class StateEngine:
 
         return False
 
-    def _close_trade(self, symbol, state, price, exit_reason, now):
+    def _close_trade(self, symbol, state, price, exit_reason, now, spread_pct=None, nyse_session=False):
         trade_type = state.trade_type
         side = state.side
 
         if trade_type in {"FUNDING", "VOL"} and side in {"LONG", "SHORT"}:
             print(f"[{trade_type}_EXIT] {symbol} {exit_reason}")
-            self._log(symbol, "EXIT", trade_type, side, price, exit_reason)
+            self._log(
+                symbol,
+                "EXIT",
+                trade_type,
+                side,
+                price,
+                exit_reason,
+                now,
+                spread_pct=spread_pct,
+                nyse_session=nyse_session,
+            )
 
             realized_return = _trade_return(side, state.entry_price, price)
             state.daily_realized_return += realized_return
@@ -252,12 +301,19 @@ class StateEngine:
             return
 
         asset_rules = get_asset_rules(symbol)
+        is_xstock = symbol.upper() in XSTOCK_SYMBOL_SET  # ← NEW
 
         ttf = features.get("time_to_funding_sec")
         funding_rate = features.get("funding_rate")
         funding_rate_abs = features.get("funding_rate_abs")
         pre_volatility = features.get("pre_volatility_5m")
         spread_pct = features.get("bid_ask_spread_pct")
+        nyse_session = bool(features.get("nyse_session")) if is_xstock else False  # ← NEW
+
+        if is_xstock and not nyse_session:
+            nyse_session = is_nyse_hours(now)  # ← NEW
+
+        spread_limit_pct = SPREAD_MAX_PCT if is_xstock else RISK.max_bid_ask_spread_pct  # ← NEW
 
         # ---------------- DAILY RESET ----------------
         today = now.date().isoformat()
@@ -275,7 +331,15 @@ class StateEngine:
         last_seen = _parse_dt(s.last_observed_at)
         if last_seen and (now - last_seen).total_seconds() > RISK.max_stale_loop_gap_sec:
             if s.state != "FLAT":
-                self._close_trade(symbol, s, price, "stale_recovery_exit", now)
+                self._close_trade(
+                    symbol,
+                    s,
+                    price,
+                    "stale_recovery_exit",
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
 
             s.warmup_loops_remaining = max(
                 s.warmup_loops_remaining,
@@ -287,7 +351,15 @@ class StateEngine:
             return
 
         if s.state != "FLAT" and self._position_is_stale(s, now):
-            self._close_trade(symbol, s, price, "stale_recovery_exit", now)
+            self._close_trade(
+                symbol,
+                s,
+                price,
+                "stale_recovery_exit",
+                now,
+                spread_pct=spread_pct,
+                nyse_session=nyse_session,
+            )
             s.warmup_loops_remaining = max(
                 s.warmup_loops_remaining,
                 RISK.warmup_loops_after_stale_gap,
@@ -321,7 +393,8 @@ class StateEngine:
                             funding_side = "SHORT"
 
                 funding_entry_ready = (
-                    not s.funding_trade_taken
+                    not is_xstock
+                    and not s.funding_trade_taken
                     and isinstance(ttf, (int, float))
                     and 0 <= ttf <= RISK.funding_entry_window_sec
                     and isinstance(funding_rate, (int, float))
@@ -330,14 +403,14 @@ class StateEngine:
                     and isinstance(pre_volatility, (int, float))
                     and pre_volatility <= RISK.max_funding_pre_volatility_5m
                     and isinstance(spread_pct, (int, float))
-                    and spread_pct <= RISK.max_bid_ask_spread_pct
+                    and spread_pct <= spread_limit_pct
                     and isinstance(funding_vote, dict)
                     and funding_vote.get("state") == "BIAS_DETECTED"
                     and funding_side in {"LONG", "SHORT"}
                     and not volatility_spike_detected(vol_vote, asset_rules)
                 )
 
-                vol_entry_ready = (
+                vol_entry_candidate = (
                     isinstance(vol_vote, dict)
                     and vol_vote.get("state") == "STRUCTURE_CONFIRMED"
                     and vol_signal in {"LONG", "SHORT"}
@@ -345,13 +418,25 @@ class StateEngine:
                     and vol_confidence >= RISK.min_vol_confidence
                     and isinstance(pre_volatility, (int, float))
                     and pre_volatility <= RISK.max_vol_pre_volatility_5m
-                    and isinstance(spread_pct, (int, float))
-                    and spread_pct <= RISK.max_bid_ask_spread_pct
                     and not (
                         isinstance(ttf, (int, float))
                         and ttf <= RISK.funding_blackout_for_vol_sec
                     )
                 )
+
+                spread_ok = isinstance(spread_pct, (int, float)) and spread_pct <= spread_limit_pct  # ← NEW
+                vol_entry_ready = vol_entry_candidate and spread_ok  # ← NEW
+
+                if is_xstock and vol_entry_candidate and isinstance(spread_pct, (int, float)) and spread_pct > spread_limit_pct:  # ← NEW
+                    print(f"[XSTOCK] SPREAD_REJECT symbol={symbol} spread_pct={spread_pct:.4f}")
+                    self._log_rejection(
+                        symbol,
+                        vol_signal,
+                        "spread_reject",
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                    )
 
                 if funding_entry_ready:
                     self._record_entry(
@@ -367,7 +452,17 @@ class StateEngine:
                     s.funding_trade_taken = True
 
                     print(f"[FUNDING_ENTRY] {symbol} {funding_side}")
-                    self._log(symbol, "ENTRY", "FUNDING", funding_side, price, "funding_entry")
+                    self._log(
+                        symbol,
+                        "ENTRY",
+                        "FUNDING",
+                        funding_side,
+                        price,
+                        "funding_entry",
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                    )
 
                 elif vol_entry_ready and vol_signal == "LONG" and not s.vol_long_taken:
                     self._record_entry(
@@ -387,7 +482,17 @@ class StateEngine:
                     s.vol_long_taken = True
 
                     print(f"[VOL_LONG_ENTRY] {symbol}")
-                    self._log(symbol, "ENTRY", "VOL", "LONG", price, vol_reason)
+                    self._log(
+                        symbol,
+                        "ENTRY",
+                        "VOL",
+                        "LONG",
+                        price,
+                        vol_reason,
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                    )
 
                 elif vol_entry_ready and vol_signal == "SHORT" and not s.vol_short_taken:
                     self._record_entry(
@@ -407,7 +512,17 @@ class StateEngine:
                     s.vol_short_taken = True
 
                     print(f"[VOL_SHORT_ENTRY] {symbol}")
-                    self._log(symbol, "ENTRY", "VOL", "SHORT", price, vol_reason)
+                    self._log(
+                        symbol,
+                        "ENTRY",
+                        "VOL",
+                        "SHORT",
+                        price,
+                        vol_reason,
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                    )
 
         # =================================================
         # FUNDING MANAGEMENT
@@ -432,7 +547,15 @@ class StateEngine:
                 exit_reason = "funding_rollover"
 
             if exit_reason:
-                self._close_trade(symbol, s, price, exit_reason, now)
+                self._close_trade(
+                    symbol,
+                    s,
+                    price,
+                    exit_reason,
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
 
         # =================================================
         # VOL MANAGEMENT
@@ -490,7 +613,15 @@ class StateEngine:
                         exit_reason = "timeout"
 
             if exit_reason:
-                self._close_trade(symbol, s, price, exit_reason, now)
+                self._close_trade(
+                    symbol,
+                    s,
+                    price,
+                    exit_reason,
+                    now,
+                    spread_pct=spread_pct,
+                    nyse_session=nyse_session,
+                )
 
         s.last_ttf = ttf
         s.last_observed_at = now.isoformat()
