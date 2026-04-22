@@ -121,9 +121,19 @@ def load_perpetual_products():
 # TICKER DATA
 # =========================
 def get_ticker(symbol):
-    r = requests.get(BASE_URL + f"/v2/tickers/{symbol}", timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["result"]
+    retry_statuses = {502, 503, 504}
+
+    for attempt in range(4):
+        try:
+            r = requests.get(BASE_URL + f"/v2/tickers/{symbol}", timeout=HTTP_TIMEOUT)
+            r.raise_for_status()
+            return r.json()["result"]
+        except requests.exceptions.HTTPError:
+            status_code = r.status_code if "r" in locals() else None
+            if status_code in retry_statuses and attempt < 3:
+                time.sleep(2 ** (attempt + 1))
+                continue
+            raise
 
 
 # =========================
