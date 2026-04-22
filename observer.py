@@ -85,21 +85,36 @@ logging.info("OBSERVER BOOTSTRAP OK")
 # PERPETUAL PRODUCT LOADER
 # =========================
 def load_perpetual_products():
-    r = requests.get(BASE_URL + "/v2/products", timeout=HTTP_TIMEOUT)
-    r.raise_for_status()
-
-    products = r.json()["result"]
     perp_map = {}
+    page = 1
 
-    for p in products:
-        if p.get("contract_type") == "perpetual_futures":
+    while True:
+        r = requests.get(
+            BASE_URL + "/v2/products",
+            params={"contract_types": "perpetual_futures", "page_size": 100, "page": page},
+            timeout=HTTP_TIMEOUT,
+        )
+        r.raise_for_status()
+        data = r.json()
+
+        products = data.get("result", [])
+        if not products:
+            break
+
+        for p in products:
             symbol = p.get("symbol")
             if symbol in TARGET_SYMBOLS:
                 perp_map[symbol] = p.get("id")
 
+        meta = data.get("meta", {})
+        if page >= meta.get("total_pages", 1):
+            break
+        page += 1
+
     if not perp_map:
         raise RuntimeError("No perpetual futures found")
 
+    logging.info("PERPETUAL SYMBOL MAP LOADED: %s", perp_map)
     return perp_map
 
 
