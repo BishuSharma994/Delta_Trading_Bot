@@ -142,6 +142,17 @@ def compute_time_to_funding(loop_start):
     return next_funding_ts - now_ts
 
 
+def normalize_decision(decision, features):
+    if isinstance(decision, str):
+        direction = "LONG" if features.get("msb") == 1 else "SHORT"
+        return {
+            "state": decision,
+            "direction": direction,
+        }
+
+    return decision
+
+
 # =========================
 # RUNTIME
 # =========================
@@ -199,6 +210,7 @@ def run_cycle():
                 })
 
             features = build_feature_vector(symbol)
+            print("TRACE_FEATURES", symbol, features)
 
             funding_vote = funding_strategy.vote(features)
             volatility_vote = volatility_strategy.vote(features, symbol=symbol)
@@ -218,15 +230,19 @@ def run_cycle():
             })
 
             decision = evaluate(features, symbol=symbol)
+            print("TRACE_DECISION_RAW", symbol, decision, type(decision))
+            decision = normalize_decision(decision, features)
+            print("TRACE_DECISION_FINAL", decision)
             print("CHECK_TRIGGER", decision)
 
+            print("TRACE_CALL_STATE_ENGINE", symbol, decision)
             state_engine.process(
-                symbol,
-                decision,
-                features,
-                mark_price,
-                funding_vote,
-                volatility_vote,
+                symbol=symbol,
+                decision=decision,
+                features=features,
+                price=mark_price,
+                funding_vote=funding_vote,
+                vol_vote=volatility_vote,
             )
 
             write_event("decision.jsonl", {
@@ -247,7 +263,9 @@ def run_cycle():
                 decision.get("state"),
             )
 
-        except Exception:
+        except Exception as e:
+            print("RUNTIME_ERROR", e)
+            traceback.print_exc()
             logging.exception("SYMBOL ERROR | %s", symbol)
             continue
 
