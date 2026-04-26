@@ -1,6 +1,10 @@
 from config.asset_rules import AssetRules
 
 
+CHOP_SCORE_THRESHOLD = 0.95
+TREND_STRENGTH_THRESHOLD = 0.00005
+
+
 def _range_pct(candle: dict) -> float:
     close = float(candle["close"])
     if close == 0:
@@ -35,7 +39,7 @@ def evaluate_regime_filter(candles: list[dict], asset_rules: AssetRules) -> dict
     minimum = max(asset_rules.regime_lookback + 1, 12)
     if not candles or len(candles) < minimum:
         return {
-            "regime": "NO_TRADE",
+            "regime": "RANGE",
             "allow_trade": False,
             "reason": "insufficient_regime_context",
             "avg_range": 0.0,
@@ -72,25 +76,20 @@ def evaluate_regime_filter(candles: list[dict], asset_rules: AssetRules) -> dict
     trend_strength = abs(fast_sma - slow_sma) / abs(last_close)
     chop_score = 1.0 - directional_efficiency
 
-    reason = "pass"
-    allow_trade = True
+    if trend_strength > TREND_STRENGTH_THRESHOLD:
+        regime = "TRENDING"
+        reason = "trend_strength_pass"
+    else:
+        regime = "RANGE"
+        reason = "range"
 
-    if atr_pct < asset_rules.min_atr_pct:
-        allow_trade = False
-        reason = "low_atr"
-    elif avg_range < asset_rules.min_avg_range_pct:
-        allow_trade = False
-        reason = "low_avg_range"
-    elif directional_efficiency < asset_rules.min_directional_efficiency:
-        allow_trade = False
-        reason = "choppy"
-    elif trend_strength < asset_rules.min_trend_strength:
-        allow_trade = False
-        reason = "weak_trend"
+    if chop_score > CHOP_SCORE_THRESHOLD:
+        regime = "RANGE"
+        reason = "high_chop_soft_range"
 
     return {
-        "regime": "TRENDING" if allow_trade else "NO_TRADE",
-        "allow_trade": allow_trade,
+        "regime": regime,
+        "allow_trade": True,
         "reason": reason,
         "avg_range": avg_range,
         "atr_pct": atr_pct,

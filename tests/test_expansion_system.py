@@ -47,7 +47,7 @@ class ExpansionSystemTests(unittest.TestCase):
         self.assertGreaterEqual(result["body_ratio"], rules.min_body_ratio)
         self.assertTrue(result["close_beyond_structure"])
 
-    def test_regime_filter_blocks_choppy_market(self):
+    def test_regime_filter_classifies_choppy_market_as_range(self):
         rules = get_asset_rules("BTCUSD")
         candles = []
 
@@ -59,8 +59,8 @@ class ExpansionSystemTests(unittest.TestCase):
 
         result = evaluate_regime_filter(candles, rules)
 
-        self.assertFalse(result["allow_trade"])
-        self.assertEqual(result["reason"], "choppy")
+        self.assertTrue(result["allow_trade"])
+        self.assertEqual(result["regime"], "RANGE")
 
     def test_htf_bias_detects_uptrend(self):
         rules = get_asset_rules("BTCUSD")

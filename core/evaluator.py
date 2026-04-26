@@ -134,12 +134,12 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
 
     # -------- Volatility / Regime Vote (optional) --------
     relaxed_regime_ok = (
-        regime == "TRENDING"
+        regime in {"TRENDING", "RANGE"}
         or (
             isinstance(chop_score, (int, float))
             and isinstance(trend_strength, (int, float))
-            and float(chop_score) < 0.7
-            and float(trend_strength) > 0.0008
+            and float(chop_score) < 0.95
+            and float(trend_strength) > 0.00005
         )
     )
     if _valid_vote(vol_vote):
@@ -153,7 +153,7 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
     # -------------------------
     # EDGE DETECTION (NO EXECUTION)
     # -------------------------
-    core_edge = regime == "TRENDING" and structure_aligned
+    core_edge = regime in {"TRENDING", "RANGE"} and structure_aligned
     fallback_edge = structure_aligned
 
     if core_edge or fallback_edge or len(supporting_votes) >= 1:

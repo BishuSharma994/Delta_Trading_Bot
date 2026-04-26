@@ -3,7 +3,7 @@ def detect_regime(candles):
         # --- safety
         if not candles or len(candles) < 15:
             return {
-                "regime": "NO_TRADE",
+                "regime": "RANGE",
                 "avg_range": 0.0,
                 "dir_strength": 0.0,
                 "trend_strength": 0.0,
@@ -28,7 +28,7 @@ def detect_regime(candles):
 
         if len(closes) < 15:
             return {
-                "regime": "NO_TRADE",
+                "regime": "RANGE",
                 "avg_range": 0.0,
                 "dir_strength": 0.0,
                 "trend_strength": 0.0,
@@ -61,15 +61,7 @@ def detect_regime(candles):
         last_price = closes[-1] if closes[-1] != 0 else 1e-9
         trend_strength = abs(sma5 - sma10) / last_price
 
-        # --- STRICT REGIME FILTER (KEY FIX)
-        if (
-            avg_range < 0.0012      # require expansion
-            or dir_strength < 0.5   # require directional consistency
-            or trend_strength < 0.001  # require real trend separation
-        ):
-            regime = "NO_TRADE"
-        else:
-            regime = "TRENDING"
+        regime = "TRENDING" if trend_strength > 0.00005 else "RANGE"
 
         return {
             "regime": regime,
@@ -81,7 +73,7 @@ def detect_regime(candles):
     except Exception as e:
         print(f"[REGIME_ERROR] {e}")
         return {
-            "regime": "NO_TRADE",
+            "regime": "RANGE",
             "avg_range": 0.0,
             "dir_strength": 0.0,
             "trend_strength": 0.0,

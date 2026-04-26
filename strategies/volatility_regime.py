@@ -30,10 +30,6 @@ def evaluate_volatility(symbol: str, candles: list[dict]) -> tuple[dict, dict]:
         regime_data.get("reason"),
     )
 
-    # --- HARD GATE
-    if not regime_data.get("allow_trade"):
-        return regime_data, {"signal": None, "market": 0, "ob": None}
-
     # --- STRUCTURE (STATEFUL)
     structure = process_structure(symbol, candles)
 
@@ -113,22 +109,6 @@ class VolatilityRegimeStrategy(Strategy):
 
         regime_data, structure = evaluate_volatility(symbol, candles)
 
-        # --- REGIME BLOCK
-        if regime_data["regime"] != "TRENDING":
-            return {
-                "state": "NO_TRADE",
-                "bias": 0,
-                "confidence": 0.0,
-                "reason": regime_data.get("reason", "Regime blocked"),
-                "signal": None,
-                "regime": regime_data.get("regime"),
-                "avg_range": regime_data.get("avg_range"),
-                "atr_pct": regime_data.get("atr_pct"),
-                "dir_strength": regime_data.get("dir_strength"),
-                "trend_strength": regime_data.get("trend_strength"),
-                "chop_score": regime_data.get("chop_score"),
-            }
-
         signal = structure.get("signal")
 
         confidence = min(
@@ -162,7 +142,7 @@ class VolatilityRegimeStrategy(Strategy):
 
         # --- NO ENTRY YET (WAITING FOR OB BREAK)
         return {
-            "state": "TRENDING_NO_SIGNAL",
+            "state": f"{regime_data.get('regime', 'RANGE')}_NO_SIGNAL",
             "bias": 0,
             "confidence": 0.0,
             "reason": structure.get("reason", "Waiting for OB breakout"),
