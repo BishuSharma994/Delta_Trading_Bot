@@ -1,3 +1,8 @@
+import logging
+
+logger = logging.getLogger()
+
+
 def detect_regime(candles):
     try:
         # --- safety
@@ -71,7 +76,7 @@ def detect_regime(candles):
         }
 
     except Exception as e:
-        print(f"[REGIME_ERROR] {e}")
+        logger.info("[REGIME_ERROR] %s", e)
         return {
             "regime": "RANGE",
             "avg_range": 0.0,

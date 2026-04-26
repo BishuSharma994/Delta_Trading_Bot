@@ -1,15 +1,34 @@
+import logging
+import os
+
+LOG_PATH = "/root/Delta_Trading_Bot/Bot.log"
+os.makedirs("/root/Delta_Trading_Bot", exist_ok=True)
+
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_PATH, mode="a"),
+        logging.StreamHandler(),
+    ],
+)
+
+logging.info("LOGGING_INITIALIZED")
+
 # Observer bootstrap
 # Delegates runtime execution to core.decision_loop.
 
 import sys
-import os
 import fcntl
-import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-print("TRACE_TOP_OF_FILE")
+logger = logging.getLogger()
+logger.info("TRACE_TOP_OF_FILE")
 
 
 _LOCK_FILE = open("/tmp/trading-bot.lock", "w")
@@ -25,21 +44,17 @@ os.chdir(PROJECT_ROOT)
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-logging.basicConfig(
-    filename="bot.log",
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-
-logging.info("OBSERVER BOOTSTRAP OK")
+logger.info("OBSERVER_BOOTSTRAP_OK")
 
 
 from core.decision_loop import run_loop
 
 
 def main():
-    print("TRACE_MAIN_LOOP_START")
-    logging.info("OBSERVER DELEGATING TO DECISION LOOP")
+    logger.info("TRACE_MAIN_LOOP_START")
+    logger.info("OBSERVER_DELEGATING_TO_DECISION_LOOP")
+    for handler in logger.handlers:
+        handler.flush()
     run_loop()
 
 

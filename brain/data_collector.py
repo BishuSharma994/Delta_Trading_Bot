@@ -139,9 +139,5 @@ def collect_all(force_refresh: bool = False) -> dict:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
     collect_all(force_refresh=True)
     print("Data collection complete.")

@@ -2,7 +2,7 @@
 # Single runtime loop: features -> evaluator -> state engine -> event memory.
 
 import time
-import traceback
+import logging
 from datetime import datetime, timezone
 
 from core.evaluator import evaluate
@@ -13,6 +13,7 @@ from config.settings import ACTIVE_SYMBOLS, DECISION_LOOP_SLEEP_SECONDS
 from utils.io import write_event
 
 
+logger = logging.getLogger()
 state_engine = StateEngine()
 
 
@@ -30,7 +31,7 @@ def run_once(symbol: str):
     features = build_feature_vector(symbol)
 
     if features is None:
-        print("TRACE_SKIPPED", symbol, "insufficient_features")
+        logger.info("TRACE_SKIPPED %s insufficient_features", symbol)
         write_event(
             "decision.jsonl",
             {
@@ -41,16 +42,16 @@ def run_once(symbol: str):
         )
         return
 
-    print("TRACE_FEATURES", symbol)
+    logger.info("TRACE_FEATURES %s", symbol)
 
     decision = evaluate(features, symbol=symbol)
-    print("REAL_LOOP_ACTIVE", symbol, decision)
-    print("TRACE_DECISION", symbol, decision, type(decision))
+    logger.info("REAL_LOOP_ACTIVE %s %s", symbol, decision)
+    logger.info("TRACE_DECISION %s %s %s", symbol, decision, type(decision))
 
     decision = normalize_decision(decision, features)
-    print("TRACE_DECISION_NORMALIZED", decision)
+    logger.info("TRACE_DECISION_NORMALIZED %s", decision)
 
-    print("TRACE_BEFORE_STATE_ENGINE", symbol, decision)
+    logger.info("TRACE_BEFORE_STATE_ENGINE %s %s", symbol, decision)
     state_engine.process(
         symbol=symbol,
         decision=decision,
@@ -73,14 +74,13 @@ def run_loop():
         for symbol in ACTIVE_SYMBOLS:
             try:
                 if not symbol_tradeable(symbol):
-                    print("TRACE_SKIPPED", symbol, "symbol_not_tradeable")
+                    logger.info("TRACE_SKIPPED %s symbol_not_tradeable", symbol)
                     continue
 
                 run_once(symbol)
             except Exception as e:
-                print("RUNTIME_ERROR", e)
-                traceback.print_exc()
-                print("TRACE_SKIPPED", symbol, "runtime_exception")
+                logger.exception("RUNTIME_ERROR %s", e)
+                logger.info("TRACE_SKIPPED %s runtime_exception", symbol)
                 continue
 
         time.sleep(DECISION_LOOP_SLEEP_SECONDS)

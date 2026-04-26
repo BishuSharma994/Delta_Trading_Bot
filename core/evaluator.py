@@ -2,8 +2,11 @@
 # Institutional Evaluator — V2.3
 # Execution GATED
 
+import logging
 from datetime import datetime, timezone
 from Delta_Trading_Bot.data.memory import get_latest_strategy_vote
+
+logger = logging.getLogger()
 
 
 # Required features for base evaluation
@@ -41,7 +44,7 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
             "missing": missing,
             "notes": "Required features missing",
         }
-        print("CHECK_EVAL", {
+        logger.info("CHECK_EVAL %s", {
             "state": result["state"],
             "direction": direction if "direction" in locals() else None,
         })
@@ -105,7 +108,7 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
     chop_score = vol_vote.get("chop_score") if isinstance(vol_vote, dict) else None
     trend_strength = vol_vote.get("trend_strength") if isinstance(vol_vote, dict) else None
 
-    print("CHECK_FEATURES", {
+    logger.info("CHECK_FEATURES %s", {
         "msb": msb_vote,
         "ob": ob_vote,
         "regime": regime
@@ -194,7 +197,7 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
         if ob_type in {"BU_OB", "BE_OB"}:
             result["ob_type"] = ob_type
 
-        print("CHECK_EVAL", {
+        logger.info("CHECK_EVAL %s", {
             "state": result["state"],
             "direction": direction if "direction" in locals() else None,
         })
@@ -209,7 +212,7 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
         "score": 0.0,
         "notes": "Confluence not satisfied",
     }
-    print("CHECK_EVAL", {
+    logger.info("CHECK_EVAL %s", {
         "state": result["state"],
         "direction": direction if "direction" in locals() else None,
     })

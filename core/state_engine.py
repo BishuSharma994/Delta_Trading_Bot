@@ -2,6 +2,7 @@
 
 import json
 import time
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,10 +20,13 @@ from utils.io import write_event
 
 STATE_FILE = Path("execution_state.json")
 XSTOCK_SYMBOL_SET = {symbol.upper() for symbol in XSTOCK_SYMBOLS}
+logger = logging.getLogger()
 
 
 def place_order(symbol, direction):
-    print("ORDER_PLACED", symbol, direction)
+    logger.info("ORDER_PLACED %s %s", symbol, direction)
+    for handler in logger.handlers:
+        handler.flush()
 
 
 def is_cooldown_active(last_trade_time, cooldown_duration):
@@ -268,10 +272,10 @@ class StateEngine:
         )
 
         if total_daily_loss <= -RISK.portfolio_max_daily_drawdown_pct:
-            print(
-                "[CRITICAL] GLOBAL CIRCUIT BREAKER: "
-                f"portfolio daily loss {total_daily_loss:.4%} "
-                f"<= {-RISK.portfolio_max_daily_drawdown_pct:.4%}"
+            logger.info(
+                "[CRITICAL] GLOBAL CIRCUIT BREAKER: portfolio daily loss %.4f%% <= %.4f%%",
+                total_daily_loss * 100,
+                -RISK.portfolio_max_daily_drawdown_pct * 100,
             )
             return True
 
@@ -359,7 +363,7 @@ class StateEngine:
         side = state.side
 
         if trade_type in {"FUNDING", "VOL"} and side in {"LONG", "SHORT"}:
-            print(f"[{trade_type}_EXIT] {symbol} {exit_reason}")
+            logger.info("[%s_EXIT] %s %s", trade_type, symbol, exit_reason)
             self._log(
                 symbol,
                 "EXIT",
@@ -475,9 +479,9 @@ class StateEngine:
         state.volatility_scale = position_payload.get("volatility_scale")
 
     def process(self, symbol, decision, features, price=None, funding_vote=None, vol_vote=None, now=None):
-        print("TRACE_STATE_ENGINE_ENTER", symbol, decision)
-        print("TRACE_STATE_ENGINE_ENTER", symbol)
-        print("STATE_ENGINE_ENTER", symbol, decision)
+        logger.info("TRACE_STATE_ENGINE_ENTER %s %s", symbol, decision)
+        logger.info("TRACE_STATE_ENGINE_ENTER %s", symbol)
+        logger.info("STATE_ENGINE_ENTER %s %s", symbol, decision)
 
         now = now or datetime.now(timezone.utc)
         funding_vote = funding_vote if isinstance(funding_vote, dict) else {}
@@ -495,15 +499,15 @@ class StateEngine:
 
         halted_until = _parse_dt(getattr(s, "halted_until", None))
         if halted_until and now < halted_until:
-            print("TRACE_SKIPPED", symbol, "halted_until_active")
+            logger.info("TRACE_SKIPPED %s halted_until_active", symbol)
             return
 
         if self._check_global_circuit_breaker():
-            print("TRACE_SKIPPED", symbol, "global_circuit_breaker")
+            logger.info("TRACE_SKIPPED %s global_circuit_breaker", symbol)
             return
 
         if not isinstance(price, (int, float)):
-            print("TRACE_SKIPPED", symbol, "invalid_price")
+            logger.info("TRACE_SKIPPED %s invalid_price", symbol)
             return
 
         asset_rules = get_asset_rules(symbol)
@@ -551,7 +555,7 @@ class StateEngine:
             s.last_ttf = ttf
             s.last_observed_at = now.isoformat()
             self._save()
-            print("TRACE_SKIPPED", symbol, "stale_gap_recovery")
+            logger.info("TRACE_SKIPPED %s stale_gap_recovery", symbol)
             return
 
         if s.state != "FLAT" and self._position_is_stale(s, now):
@@ -571,7 +575,7 @@ class StateEngine:
             s.last_ttf = ttf
             s.last_observed_at = now.isoformat()
             self._save()
-            print("TRACE_SKIPPED", symbol, "stale_position_recovery")
+            logger.info("TRACE_SKIPPED %s stale_position_recovery", symbol)
             return
 
         # =================================================
@@ -661,23 +665,23 @@ class StateEngine:
                 )
             )
 
-            print("CHECK_STATE", current_position)
-            print("CHECK_COOLDOWN", cooldown_active)
-            print("CHECK_WINDOW", is_entry_window)
+            logger.info("CHECK_STATE %s", current_position)
+            logger.info("CHECK_COOLDOWN %s", cooldown_active)
+            logger.info("CHECK_WINDOW %s", is_entry_window)
             current_time = time.time()
-            print("CHECK_COOLDOWN_DEBUG", {
+            logger.info("CHECK_COOLDOWN_DEBUG %s", {
                 "cooldown_active": cooldown_active,
                 "last_trade_time": last_trade_time,
                 "current_time": current_time,
                 "time_diff": current_time - last_trade_time if last_trade_time else None,
                 "cooldown_duration": cooldown_duration,
             })
-            print("TRACE_ENTRY_CHECK", {
+            logger.info("TRACE_ENTRY_CHECK %s", {
                 "state": decision.get("state") if isinstance(decision, dict) else decision,
                 "position": current_position,
                 "cooldown": cooldown_active,
             })
-            print("TRACE_ENTRY_CHECK", decision, current_position, cooldown_active)
+            logger.info("TRACE_ENTRY_CHECK %s %s %s", decision, current_position, cooldown_active)
 
             intended_side = funding_side if funding_entry_ready else vol_signal
             entry_block_reason = None
@@ -691,8 +695,10 @@ class StateEngine:
 
                 if decision["state"] == "EDGE_DETECTED":
                     if current_position == "FLAT":
-                        print("ENTRY_TRIGGERED", symbol)
-                        print("TRACE_ORDER_EXECUTION", symbol, decision["direction"])
+                        logger.info("ENTRY_TRIGGERED %s", symbol)
+                        logger.info("TRACE_ORDER_EXECUTION %s %s", symbol, decision["direction"])
+                        for handler in logger.handlers:
+                            handler.flush()
                         place_order(symbol, decision["direction"])
                         s.last_trade_time = time.time()
 
@@ -849,7 +855,7 @@ class StateEngine:
                         vol_vote,
                     ),
                 )
-                print("CHECK_ENTRY_CALL", {
+                logger.info("CHECK_ENTRY_CALL %s", {
                     "symbol": symbol,
                     "decision": decision
                 })
@@ -866,7 +872,7 @@ class StateEngine:
                 s.daily_trade_count += 1
                 s.funding_trade_taken = True
 
-                print(f"[FUNDING_ENTRY] {symbol} {funding_side}")
+                logger.info("[FUNDING_ENTRY] %s %s", symbol, funding_side)
                 self._log(
                     symbol,
                     "ENTRY",
@@ -891,7 +897,7 @@ class StateEngine:
                         vol_vote,
                     ),
                 )
-                print("CHECK_ENTRY_CALL", {
+                logger.info("CHECK_ENTRY_CALL %s", {
                     "symbol": symbol,
                     "decision": decision
                 })
@@ -912,7 +918,7 @@ class StateEngine:
                 s.daily_trade_count += 1
                 s.vol_long_taken = True
 
-                print(f"[VOL_LONG_ENTRY] {symbol}")
+                logger.info("[VOL_LONG_ENTRY] %s", symbol)
                 self._log(
                     symbol,
                     "ENTRY",
@@ -937,7 +943,7 @@ class StateEngine:
                         vol_vote,
                     ),
                 )
-                print("CHECK_ENTRY_CALL", {
+                logger.info("CHECK_ENTRY_CALL %s", {
                     "symbol": symbol,
                     "decision": decision
                 })
@@ -958,7 +964,7 @@ class StateEngine:
                 s.daily_trade_count += 1
                 s.vol_short_taken = True
 
-                print(f"[VOL_SHORT_ENTRY] {symbol}")
+                logger.info("[VOL_SHORT_ENTRY] %s", symbol)
                 self._log(
                     symbol,
                     "ENTRY",

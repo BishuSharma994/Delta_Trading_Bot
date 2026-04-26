@@ -115,10 +115,6 @@ def print_summary(symbol: str, resolution: str):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-    )
     from brain.data_collector import ALL_SYMBOLS, RESOLUTIONS
 
     for symbol in ALL_SYMBOLS:
