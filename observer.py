@@ -221,6 +221,7 @@ def main():
 
                 # -------- EVALUATION --------
                 decision = evaluate(features, symbol=symbol)
+                print("CHECK_TRIGGER", decision)
 
                 # -------- STATE ENGINE --------
                 state_engine.process(

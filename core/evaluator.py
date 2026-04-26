@@ -34,13 +34,18 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
     missing = [f for f in REQUIRED_FEATURES if f not in features]
 
     if missing:
-        return {
+        result = {
             "ts": now,
             "state": "INSUFFICIENT_DATA",
             "score": 0.0,
             "missing": missing,
             "notes": "Required features missing",
         }
+        print("CHECK_EVAL", {
+            "state": result["state"],
+            "direction": direction if "direction" in locals() else None,
+        })
+        return result
 
     # -------------------------
     # STRATEGY CONFLUENCE
@@ -99,6 +104,12 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
     htf_bias = vol_vote.get("htf_bias") if isinstance(vol_vote, dict) else None
     chop_score = vol_vote.get("chop_score") if isinstance(vol_vote, dict) else None
     trend_strength = vol_vote.get("trend_strength") if isinstance(vol_vote, dict) else None
+
+    print("CHECK_FEATURES", {
+        "msb": msb_vote,
+        "ob": ob_vote,
+        "regime": regime
+    })
 
     msb_direction = _extract_msb_direction(msb_vote)
     ob_type = _extract_ob_type(ob_vote)
@@ -183,14 +194,23 @@ def evaluate(features: dict, symbol: str | None = None) -> dict:
         if ob_type in {"BU_OB", "BE_OB"}:
             result["ob_type"] = ob_type
 
+        print("CHECK_EVAL", {
+            "state": result["state"],
+            "direction": direction if "direction" in locals() else None,
+        })
         return result
 
     # -------------------------
     # DEFAULT SAFE STATE
     # -------------------------
-    return {
+    result = {
         "ts": now,
         "state": "NO_EDGE",
         "score": 0.0,
         "notes": "Confluence not satisfied",
     }
+    print("CHECK_EVAL", {
+        "state": result["state"],
+        "direction": direction if "direction" in locals() else None,
+    })
+    return result

@@ -522,6 +522,9 @@ class StateEngine:
         # ENTRY LOGIC
         # =================================================
         if s.state == "FLAT":
+            current_position = s.state
+            cooldown_until = _parse_dt(s.cooldown_until)
+            cooldown_active = bool(cooldown_until and now < cooldown_until)
             vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
             vol_reason = (
                 vol_vote.get("reason", "OB_retest_confirmation")
@@ -581,6 +584,20 @@ class StateEngine:
                 )
             )
             vol_entry_ready = vol_entry_candidate and spread_ok
+            is_entry_window = (
+                (
+                    isinstance(ttf, (int, float))
+                    and 0 <= ttf <= RISK.funding_entry_window_sec
+                )
+                or not (
+                    isinstance(ttf, (int, float))
+                    and ttf <= RISK.funding_blackout_for_vol_sec
+                )
+            )
+
+            print("CHECK_STATE", current_position)
+            print("CHECK_COOLDOWN", cooldown_active)
+            print("CHECK_WINDOW", is_entry_window)
 
             intended_side = funding_side if funding_entry_ready else vol_signal
             entry_block_reason = self._entry_block_reason(s, now)
@@ -684,6 +701,10 @@ class StateEngine:
                         vol_vote,
                     ),
                 )
+                print("CHECK_ENTRY_CALL", {
+                    "symbol": symbol,
+                    "decision": decision
+                })
                 self._record_entry(
                     s,
                     "FUNDING",
@@ -722,6 +743,10 @@ class StateEngine:
                         vol_vote,
                     ),
                 )
+                print("CHECK_ENTRY_CALL", {
+                    "symbol": symbol,
+                    "decision": decision
+                })
                 self._record_entry(
                     s,
                     "VOL",
@@ -764,6 +789,10 @@ class StateEngine:
                         vol_vote,
                     ),
                 )
+                print("CHECK_ENTRY_CALL", {
+                    "symbol": symbol,
+                    "decision": decision
+                })
                 self._record_entry(
                     s,
                     "VOL",
