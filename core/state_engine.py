@@ -474,11 +474,19 @@ class StateEngine:
         state.confidence_scale = position_payload.get("confidence_scale")
         state.volatility_scale = position_payload.get("volatility_scale")
 
-    def process(self, symbol, decision, features, price, funding_vote, vol_vote, now=None):
+    def process(self, symbol, decision, features, price=None, funding_vote=None, vol_vote=None, now=None):
         print("TRACE_STATE_ENGINE_ENTER", symbol, decision)
         print("TRACE_STATE_ENGINE_ENTER", symbol)
+        print("STATE_ENGINE_ENTER", symbol, decision)
 
         now = now or datetime.now(timezone.utc)
+        funding_vote = funding_vote if isinstance(funding_vote, dict) else {}
+        vol_vote = vol_vote if isinstance(vol_vote, dict) else {}
+
+        if price is None and isinstance(features, dict):
+            recent_prices = features.get("recent_prices")
+            if recent_prices:
+                price = recent_prices[-1]
 
         if symbol not in self.symbols:
             self.symbols[symbol] = SymbolState()
