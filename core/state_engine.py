@@ -1,6 +1,7 @@
 # core/state_engine.py
 
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,6 +19,17 @@ from utils.io import write_event
 
 STATE_FILE = Path("execution_state.json")
 XSTOCK_SYMBOL_SET = {symbol.upper() for symbol in XSTOCK_SYMBOLS}
+FORCE_DISABLE_COOLDOWN = True
+
+
+def place_order(symbol, direction):
+    print("ORDER_PLACED", symbol, direction)
+
+
+def is_cooldown_active(last_trade_time, cooldown_duration):
+    if last_trade_time is None:
+        return False
+    return (time.time() - last_trade_time) < cooldown_duration
 
 
 def _parse_dt(value):
@@ -55,6 +67,34 @@ def _trade_return(side, entry_price, exit_price):
     return (float(entry_price) - float(exit_price)) / float(entry_price)
 
 
+def _normalize_decision(decision):
+    if isinstance(decision, dict):
+        value = decision.get("state") or decision.get("decision") or ""
+    else:
+        value = decision or ""
+
+    return str(value).upper().strip()
+
+
+def _extract_decision_direction(decision):
+    if not isinstance(decision, dict):
+        return None
+
+    direction = decision.get("direction")
+    if isinstance(direction, str):
+        direction = direction.upper().strip()
+        if direction in {"LONG", "SHORT"}:
+            return direction
+
+    msb = decision.get("msb")
+    if msb == 1:
+        return "LONG"
+    if msb == -1:
+        return "SHORT"
+
+    return None
+
+
 class SymbolState:
     def __init__(self):
         self.state = "FLAT"
@@ -78,6 +118,7 @@ class SymbolState:
 
         self.last_ttf = None
         self.last_observed_at = None
+        self.last_trade_time = None
         self.cooldown_until = None
         self.halted_until = None
         self.warmup_loops_remaining = 0
@@ -523,8 +564,14 @@ class StateEngine:
         # =================================================
         if s.state == "FLAT":
             current_position = s.state
-            cooldown_until = _parse_dt(s.cooldown_until)
-            cooldown_active = bool(cooldown_until and now < cooldown_until)
+            last_trade_time = getattr(s, "last_trade_time", None)
+            if last_trade_time == 0:
+                last_trade_time = None
+                s.last_trade_time = None
+            cooldown_duration = RISK.win_cooldown_sec
+            cooldown_active = is_cooldown_active(last_trade_time, cooldown_duration)
+            decision_state = _normalize_decision(decision)
+            decision_direction = _extract_decision_direction(decision)
             vol_signal = vol_vote.get("signal") if isinstance(vol_vote, dict) else None
             vol_reason = (
                 vol_vote.get("reason", "OB_retest_confirmation")
@@ -598,11 +645,85 @@ class StateEngine:
             print("CHECK_STATE", current_position)
             print("CHECK_COOLDOWN", cooldown_active)
             print("CHECK_WINDOW", is_entry_window)
+            current_time = time.time()
+            print("CHECK_COOLDOWN_DEBUG", {
+                "cooldown_active": cooldown_active,
+                "last_trade_time": last_trade_time,
+                "current_time": current_time,
+                "time_diff": current_time - last_trade_time if last_trade_time else None,
+                "cooldown_duration": cooldown_duration,
+            })
 
             intended_side = funding_side if funding_entry_ready else vol_signal
-            entry_block_reason = self._entry_block_reason(s, now)
+            entry_block_reason = None
 
-            if entry_block_reason and intended_side in {"LONG", "SHORT"}:
+            if decision_state == "EDGE_DETECTED" and decision_direction in {"LONG", "SHORT"}:
+                intended_side = decision_direction
+
+                if current_position == "FLAT" and (FORCE_DISABLE_COOLDOWN or not cooldown_active):
+                    print("ENTRY_TRIGGERED", {
+                        "symbol": symbol,
+                        "decision": decision_state,
+                        "position": current_position,
+                    })
+                    place_order(symbol, decision_direction)
+                    s.last_trade_time = time.time()
+
+                    position_payload = self._build_position_sizing(
+                        price=price,
+                        pre_volatility=pre_volatility,
+                        signal_confidence=self._extract_signal_confidence(
+                            decision,
+                            "VOL",
+                            funding_vote,
+                            vol_vote,
+                        ),
+                    )
+                    self._record_entry(
+                        s,
+                        "VOL",
+                        decision_direction,
+                        price,
+                        now,
+                        position_payload=position_payload,
+                        vol_context=build_vol_entry_context(
+                            decision_direction,
+                            vol_vote if isinstance(vol_vote, dict) else {},
+                            asset_rules,
+                        ),
+                    )
+
+                    s.daily_trade_count += 1
+                    if decision_direction == "LONG":
+                        s.vol_long_taken = True
+                    else:
+                        s.vol_short_taken = True
+
+                    self._log(
+                        symbol,
+                        "ENTRY",
+                        "VOL",
+                        decision_direction,
+                        price,
+                        "edge_detected_entry",
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                        position_payload=position_payload,
+                    )
+                else:
+                    self._log_rejection(
+                        symbol,
+                        decision_direction,
+                        "cooldown_active",
+                        now,
+                        spread_pct=spread_pct,
+                        nyse_session=nyse_session,
+                    )
+            elif (
+                (entry_block_reason := self._entry_block_reason(s, now))
+                and intended_side in {"LONG", "SHORT"}
+            ):
                 self._log_rejection(
                     symbol,
                     intended_side,

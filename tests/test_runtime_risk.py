@@ -246,6 +246,29 @@ class RuntimeRiskTests(unittest.TestCase):
         self.assertEqual(self.events[-1][1]["action"], "ENTRY")
         self.assertEqual(self.events[-1][1]["side"], "SHORT")
 
+    @patch.object(state_engine_module, "place_order")
+    def test_edge_detected_triggers_order_from_decision_direction(self, place_order_mock):
+        now = datetime(2026, 4, 1, 3, 48, tzinfo=timezone.utc)
+
+        self.engine.process(
+            "BTCUSD",
+            decision={"state": " edge_detected ", "direction": " long ", "score": 1.0},
+            features={
+                "pre_volatility_5m": RISK.max_vol_pre_volatility_5m + 0.01,
+                "bid_ask_spread_pct": RISK.max_bid_ask_spread_pct + 0.01,
+            },
+            price=100.0,
+            funding_vote={},
+            vol_vote={},
+            now=now,
+        )
+
+        place_order_mock.assert_called_once_with("BTCUSD", "LONG")
+        self.assertEqual(self.engine.symbols["BTCUSD"].state, "IN_VOL_TRADE")
+        self.assertEqual(self.events[-1][1]["action"], "ENTRY")
+        self.assertEqual(self.events[-1][1]["side"], "LONG")
+        self.assertEqual(self.events[-1][1]["reason"], "edge_detected_entry")
+
     def test_cooldown_active_logs_reject_for_structure_confirmed_setup(self):
         now = datetime(2026, 4, 1, 3, 50, tzinfo=timezone.utc)
         state = SymbolState()
