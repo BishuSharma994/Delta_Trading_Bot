@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
+print("TRACE_TOP_OF_FILE")
+
 
 # -------------------------
 # SINGLE INSTANCE LOCK
@@ -129,6 +131,7 @@ def get_ticker(symbol):
             status_code = r.status_code if "r" in locals() else None
             if status_code in retry_statuses and attempt < 3:
                 time.sleep(2 ** (attempt + 1))
+                print("TRACE_SKIPPED", symbol, "ticker_retry")
                 continue
             raise
 
@@ -174,11 +177,13 @@ def run_cycle():
     state_engine, funding_strategy, volatility_strategy, symbols = _RUNTIME
 
     if enforce(state_engine=state_engine):
+        print("TRACE_SKIPPED", "ALL_SYMBOLS", "runtime_kill_switch_enforced")
         return
 
     loop_start = datetime.now(timezone.utc)
 
     for symbol, product_id in symbols.items():
+        print("TRACE_SYMBOL_LOOP", symbol)
         try:
             ticker = get_ticker(symbol)
 
@@ -211,6 +216,7 @@ def run_cycle():
 
             features = build_feature_vector(symbol)
             print("TRACE_FEATURES", symbol, features)
+            print("TRACE_FEATURES", symbol)
 
             funding_vote = funding_strategy.vote(features)
             volatility_vote = volatility_strategy.vote(features, symbol=symbol)
@@ -230,11 +236,14 @@ def run_cycle():
             })
 
             decision = evaluate(features, symbol=symbol)
+            print("TRACE_DECISION", symbol, decision, type(decision))
             print("TRACE_DECISION_RAW", symbol, decision, type(decision))
             decision = normalize_decision(decision, features)
+            print("TRACE_DECISION_NORMALIZED", decision)
             print("TRACE_DECISION_FINAL", decision)
             print("CHECK_TRIGGER", decision)
 
+            print("TRACE_BEFORE_STATE_ENGINE", symbol, decision)
             print("TRACE_CALL_STATE_ENGINE", symbol, decision)
             state_engine.process(
                 symbol=symbol,
@@ -267,6 +276,7 @@ def run_cycle():
             print("RUNTIME_ERROR", e)
             traceback.print_exc()
             logging.exception("SYMBOL ERROR | %s", symbol)
+            print("TRACE_SKIPPED", symbol, "symbol_exception")
             continue
 
     total_daily_pnl = sum(s.daily_realized_return for s in state_engine.symbols.values())
@@ -283,6 +293,7 @@ def main():
 
     while True:
         try:
+            print("TRACE_MAIN_LOOP_START")
             run_cycle()
             time.sleep(10)
         except Exception as e:

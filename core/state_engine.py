@@ -476,6 +476,7 @@ class StateEngine:
 
     def process(self, symbol, decision, features, price, funding_vote, vol_vote, now=None):
         print("TRACE_STATE_ENGINE_ENTER", symbol, decision)
+        print("TRACE_STATE_ENGINE_ENTER", symbol)
 
         now = now or datetime.now(timezone.utc)
 
@@ -486,12 +487,15 @@ class StateEngine:
 
         halted_until = _parse_dt(getattr(s, "halted_until", None))
         if halted_until and now < halted_until:
+            print("TRACE_SKIPPED", symbol, "halted_until_active")
             return
 
         if self._check_global_circuit_breaker():
+            print("TRACE_SKIPPED", symbol, "global_circuit_breaker")
             return
 
         if not isinstance(price, (int, float)):
+            print("TRACE_SKIPPED", symbol, "invalid_price")
             return
 
         asset_rules = get_asset_rules(symbol)
@@ -539,6 +543,7 @@ class StateEngine:
             s.last_ttf = ttf
             s.last_observed_at = now.isoformat()
             self._save()
+            print("TRACE_SKIPPED", symbol, "stale_gap_recovery")
             return
 
         if s.state != "FLAT" and self._position_is_stale(s, now):
@@ -558,6 +563,7 @@ class StateEngine:
             s.last_ttf = ttf
             s.last_observed_at = now.isoformat()
             self._save()
+            print("TRACE_SKIPPED", symbol, "stale_position_recovery")
             return
 
         # =================================================
@@ -663,6 +669,7 @@ class StateEngine:
                 "position": current_position,
                 "cooldown": cooldown_active,
             })
+            print("TRACE_ENTRY_CHECK", decision, current_position, cooldown_active)
 
             intended_side = funding_side if funding_entry_ready else vol_signal
             entry_block_reason = None
@@ -675,7 +682,7 @@ class StateEngine:
                 intended_side = decision_direction
 
                 if decision["state"] == "EDGE_DETECTED":
-                    if current_position == "FLAT" and not cooldown_active:
+                    if current_position == "FLAT":
                         print("ENTRY_TRIGGERED", symbol)
                         print("TRACE_ORDER_EXECUTION", symbol, decision["direction"])
                         place_order(symbol, decision["direction"])
