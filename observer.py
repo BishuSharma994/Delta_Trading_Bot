@@ -6,6 +6,7 @@
 import sys
 import os
 import time
+import traceback
 import fcntl
 import requests
 import logging
@@ -18,11 +19,7 @@ from dotenv import load_dotenv
 # SINGLE INSTANCE LOCK
 # -------------------------
 _LOCK_FILE = open("/tmp/trading-bot.lock", "w")
-try:
-    fcntl.flock(_LOCK_FILE, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except BlockingIOError:
-    print("Another instance is already running. Exiting.")
-    sys.exit(0)
+fcntl.flock(_LOCK_FILE, fcntl.LOCK_EX)
 
 
 # -------------------------
@@ -62,11 +59,11 @@ from v5.runtime.kill_switch import enforce, check_auto_arm
 # CONFIG
 # =========================
 BASE_URL = "https://api.india.delta.exchange"
-LOOP_INTERVAL_SECONDS = 60
 HTTP_TIMEOUT = 5
-FUNDING_INTERVAL_SECONDS = 8 * 60 * 60  # 28800
+FUNDING_INTERVAL_SECONDS = 8 * 60 * 60
 
 TARGET_SYMBOLS = set(ACTIVE_SYMBOLS)
+_RUNTIME = None
 
 # =========================
 # LOGGING
@@ -111,7 +108,7 @@ def load_perpetual_products():
         params["after"] = after_cursor
 
     if not perp_map:
-        raise RuntimeError("No perpetual futures found — check TARGET_SYMBOLS and API endpoint")
+        raise RuntimeError("No perpetual futures found - check TARGET_SYMBOLS and API endpoint")
 
     logging.info("PERPETUAL SYMBOL MAP LOADED: %s", perp_map)
     return perp_map
@@ -146,121 +143,135 @@ def compute_time_to_funding(loop_start):
 
 
 # =========================
-# MAIN LOOP
+# RUNTIME
 # =========================
-def main():
-    logging.info("OBSERVER STARTED")
-
+def initialize_runtime():
     state_engine = StateEngine()
     funding_strategy = FundingBiasStrategy()
     volatility_strategy = VolatilityRegimeStrategy()
+    symbols = load_perpetual_products()
+    logging.info("PERPETUAL SYMBOL MAP LOADED: %s", symbols)
+    return state_engine, funding_strategy, volatility_strategy, symbols
 
-    SYMBOLS = load_perpetual_products()
-    logging.info("PERPETUAL SYMBOL MAP LOADED: %s", SYMBOLS)
 
-    while True:
-        if enforce(state_engine=state_engine):
-            time.sleep(LOOP_INTERVAL_SECONDS)
-            continue
+def run_cycle():
+    global _RUNTIME
 
-        loop_start = datetime.now(timezone.utc)
+    if _RUNTIME is None:
+        _RUNTIME = initialize_runtime()
 
-        for symbol, product_id in SYMBOLS.items():
-            try:
-                ticker = get_ticker(symbol)
+    state_engine, funding_strategy, volatility_strategy, symbols = _RUNTIME
 
-                mark_price = float(ticker.get("mark_price"))
-                funding_rate = ticker.get("funding_rate")
-                spot_price = ticker.get("spot_price")
+    if enforce(state_engine=state_engine):
+        return
 
-                # -------- PRICE SNAPSHOT --------
-                write_event("price_snapshot.jsonl", {
+    loop_start = datetime.now(timezone.utc)
+
+    for symbol, product_id in symbols.items():
+        try:
+            ticker = get_ticker(symbol)
+
+            mark_price = float(ticker.get("mark_price"))
+            funding_rate = ticker.get("funding_rate")
+            spot_price = ticker.get("spot_price")
+
+            write_event("price_snapshot.jsonl", {
+                "timestamp_utc": loop_start.isoformat(),
+                "symbol": symbol,
+                "product_id": product_id,
+                "mark_price": mark_price,
+                "index_price": float(spot_price) if spot_price else mark_price,
+                "best_bid": float(ticker["quotes"]["best_bid"]),
+                "best_ask": float(ticker["quotes"]["best_ask"]),
+            })
+
+            if funding_rate is not None:
+                time_to_funding_sec = compute_time_to_funding(loop_start)
+
+                write_event("funding_snapshot.jsonl", {
                     "timestamp_utc": loop_start.isoformat(),
                     "symbol": symbol,
                     "product_id": product_id,
+                    "funding_rate": float(funding_rate),
+                    "time_to_funding_sec": time_to_funding_sec,
                     "mark_price": mark_price,
                     "index_price": float(spot_price) if spot_price else mark_price,
-                    "best_bid": float(ticker["quotes"]["best_bid"]),
-                    "best_ask": float(ticker["quotes"]["best_ask"]),
                 })
 
-                # -------- FUNDING SNAPSHOT --------
-                if funding_rate is not None:
-                    time_to_funding_sec = compute_time_to_funding(loop_start)
+            features = build_feature_vector(symbol)
 
-                    write_event("funding_snapshot.jsonl", {
-                        "timestamp_utc": loop_start.isoformat(),
-                        "symbol": symbol,
-                        "product_id": product_id,
-                        "funding_rate": float(funding_rate),
-                        "time_to_funding_sec": time_to_funding_sec,
-                        "mark_price": mark_price,
-                        "index_price": float(spot_price) if spot_price else mark_price,
-                    })
+            funding_vote = funding_strategy.vote(features)
+            volatility_vote = volatility_strategy.vote(features, symbol=symbol)
 
-                # -------- FEATURES --------
-                features = build_feature_vector(symbol)
+            write_event("strategy_votes.jsonl", {
+                "timestamp_utc": loop_start.isoformat(),
+                "symbol": symbol,
+                "strategy": funding_strategy.name,
+                "vote": funding_vote,
+            })
 
-                # -------- STRATEGY VOTES --------
-                funding_vote = funding_strategy.vote(features)
-                volatility_vote = volatility_strategy.vote(features, symbol=symbol)
+            write_event("strategy_votes.jsonl", {
+                "timestamp_utc": loop_start.isoformat(),
+                "symbol": symbol,
+                "strategy": volatility_strategy.name,
+                "vote": volatility_vote,
+            })
 
-                write_event("strategy_votes.jsonl", {
-                    "timestamp_utc": loop_start.isoformat(),
-                    "symbol": symbol,
-                    "strategy": funding_strategy.name,
-                    "vote": funding_vote,
-                })
+            decision = evaluate(features, symbol=symbol)
+            print("CHECK_TRIGGER", decision)
 
-                write_event("strategy_votes.jsonl", {
-                    "timestamp_utc": loop_start.isoformat(),
-                    "symbol": symbol,
-                    "strategy": volatility_strategy.name,
-                    "vote": volatility_vote,
-                })
+            state_engine.process(
+                symbol,
+                decision,
+                features,
+                mark_price,
+                funding_vote,
+                volatility_vote,
+            )
 
-                # -------- EVALUATION --------
-                decision = evaluate(features, symbol=symbol)
-                print("CHECK_TRIGGER", decision)
+            write_event("decision.jsonl", {
+                "timestamp_utc": loop_start.isoformat(),
+                "symbol": symbol,
+                "decision": decision,
+                "features": {
+                    "funding_rate_abs": features.get("funding_rate_abs"),
+                    "time_to_funding_sec": features.get("time_to_funding_sec"),
+                    "pre_volatility_5m": features.get("pre_volatility_5m"),
+                },
+                "feature_states": features.get("_feature_states", {}),
+            })
 
-                # -------- STATE ENGINE --------
-                state_engine.process(
-                    symbol,
-                    decision,
-                    features,
-                    mark_price,
-                    funding_vote,
-                    volatility_vote,
-                )
+            logging.info(
+                "DECISION | %s | %s",
+                symbol,
+                decision.get("state"),
+            )
 
-                write_event("decision.jsonl", {
-                    "timestamp_utc": loop_start.isoformat(),
-                    "symbol": symbol,
-                    "decision": decision,
-                    "features": {
-                        "funding_rate_abs": features.get("funding_rate_abs"),
-                        "time_to_funding_sec": features.get("time_to_funding_sec"),
-                        "pre_volatility_5m": features.get("pre_volatility_5m"),
-                    },
-                    "feature_states": features.get("_feature_states", {}),
-                })
-
-                logging.info(
-                    "DECISION | %s | %s",
-                    symbol,
-                    decision.get("state"),
-                )
-
-            except Exception:
-                logging.exception("SYMBOL ERROR | %s", symbol)
-                continue
-
-        total_daily_pnl = sum(s.daily_realized_return for s in state_engine.symbols.values())
-        if check_auto_arm(total_daily_pnl, consecutive_losses=0, api_error_count=0):
+        except Exception:
+            logging.exception("SYMBOL ERROR | %s", symbol)
             continue
 
-        logging.info("HEARTBEAT | loop_complete")
-        time.sleep(LOOP_INTERVAL_SECONDS)
+    total_daily_pnl = sum(s.daily_realized_return for s in state_engine.symbols.values())
+    check_auto_arm(total_daily_pnl, consecutive_losses=0, api_error_count=0)
+    logging.info("HEARTBEAT | loop_complete")
+
+
+# =========================
+# MAIN LOOP
+# =========================
+def main():
+    print("BOT_LOOP_STARTED")
+    logging.info("OBSERVER STARTED")
+
+    while True:
+        try:
+            run_cycle()
+            time.sleep(10)
+        except Exception as e:
+            print("RUNTIME_ERROR", e)
+            traceback.print_exc()
+            logging.exception("RUNTIME_ERROR")
+            time.sleep(5)
 
 
 # =========================
