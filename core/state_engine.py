@@ -16,7 +16,7 @@ from app.strategy.regime_filter import volatility_spike_detected
 from config.asset_rules import get_asset_rules
 from config.risk import RISK
 from config.settings import SPREAD_MAX_PCT, XSTOCK_SYMBOLS
-from utils.io import write_event
+from utils.io import record_trade, write_event
 
 STATE_FILE = Path("execution_state.json")
 XSTOCK_SYMBOL_SET = {symbol.upper() for symbol in XSTOCK_SYMBOLS}
@@ -204,6 +204,9 @@ class StateEngine:
 
         if isinstance(position_payload, dict):
             payload.update(position_payload)
+
+        if action in {"ENTRY", "EXIT"}:
+            record_trade(payload)
 
         write_event("paper_trades.jsonl", payload)
 
